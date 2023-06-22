@@ -20,6 +20,7 @@ impl Token {
     }
 }
 
+#[derive(Debug)]
 enum IncompleteToken {
     None,
     Number(String),
@@ -35,13 +36,15 @@ pub fn tokenize(text: &str) -> Vec<Token> {
     for char in text.chars() {
         match char {
             '(' => tokens.push(Token::new(TokenType::OpenParen)),
-            _ if char.is_numeric() => match state.borrow_mut() {
-                IncompleteToken::None => {
-                    state = IncompleteToken::Number(char.to_string())
+            '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => {
+                match state.borrow_mut() {
+                    IncompleteToken::None => {
+                        state = IncompleteToken::Number(char.to_string())
+                    }
+                    IncompleteToken::Number(string) => string.push(char),
+                    _ => panic!(),
                 }
-                IncompleteToken::Number(string) => string.push(char),
-                _ => panic!(),
-            },
+            }
             '_' => match state {
                 IncompleteToken::Literal(ref mut literal) => {
                     literal.push(char);
@@ -82,7 +85,7 @@ pub fn tokenize(text: &str) -> Vec<Token> {
                     tokens.push(Token::new(TokenType::CloseParen))
                 }
             }
-            '+' | '-' | '*' | '/' => {
+            '+' | '-' | '*' | '/' | '%' => {
                 tokens.push(Token::new(TokenType::Operator(char.to_string())))
             }
             '!' | '=' => match state {
@@ -267,9 +270,13 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                     "-" => Value::Number(operand_1 - operand_2),
                     "*" => Value::Number(operand_1 * operand_2),
                     "/" => Value::Number(operand_1 / operand_2),
+                    "%" => Value::Number(operand_1 % operand_2),
                     _ => panic!(),
                 }
             }
+            [TreeNode {
+                node_type: TreeNodeType::Literal(_),
+            }] => execute(&children[0], &mut scope),
             [TreeNode {
                 node_type: TreeNodeType::Literal(literal),
             }, ..] => match literal.as_str() {
@@ -304,11 +311,13 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
 
                         match condition_value {
                             Value::Bool(true) => execute(if_code, &mut scope),
-                            Value::Bool(false) => match &children[4..] {
-                                [else_code] => execute(else_code, &mut scope),
-                                _ => Value::Void,
+                            Value::Bool(false) => match children.get(4) {
+                                Some(else_code) => {
+                                    execute(else_code, &mut scope)
+                                }
+                                None => Value::Void,
                             },
-                            _ => Value::Void,
+                            _ => panic!("Condition is not a bool"),
                         }
                     }
                     _ => panic!(),
@@ -380,6 +389,11 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                             func_scope.variables.insert(key.to_string(), value);
                         }
 
+                        func_scope.variables.insert(
+                            literal.to_string(),
+                            Value::Function(args, code.clone()),
+                        );
+
                         execute(&TreeNode { node_type: code }, &mut func_scope)
                     }
                     _ => panic!(),
@@ -389,10 +403,13 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                 node_type: TreeNodeType::Paren(_),
             }] => execute(&children[0], &mut scope),
             _ => {
-                for child in children {
-                    execute(child, &mut scope);
+                let values =
+                    children.iter().map(|child| execute(child, &mut scope));
+
+                match values.last() {
+                    Some(value) => value,
+                    None => Value::Void,
                 }
-                Value::Void
             }
         },
         TreeNodeType::Bool(bool) => Value::Bool(*bool),

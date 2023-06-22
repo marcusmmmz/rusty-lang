@@ -24,12 +24,16 @@ fn main() {
                     (print 54321)
                 ))
 
-                (fn do_stuff (a) (
-                    print (a + 10)
+                (fn factorial (n) (
+                    (if (n == 1) (
+                        n
+                    ) else (
+                        n * (factorial (n - 1))
+                    ))
                 ))
 
                 (for i in 10 (
-                    (do_stuff i)
+                    (print (factorial (i + 1)))
                 ))
             )",
     );
