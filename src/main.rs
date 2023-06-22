@@ -24,9 +24,13 @@ fn main() {
                     (print 54321)
                 ))
 
+                (fn do_stuff (a) (
+                    print (a + 10)
+                ))
+
                 (for i in 10 (
-                    (print i)
+                    (do_stuff i)
                 ))
             )",
-    )
+    );
 }

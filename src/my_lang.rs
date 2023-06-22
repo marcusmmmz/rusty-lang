@@ -42,13 +42,18 @@ pub fn tokenize(text: &str) -> Vec<Token> {
                 IncompleteToken::Number(string) => string.push(char),
                 _ => panic!(),
             },
+            '_' => match state {
+                IncompleteToken::Literal(ref mut literal) => {
+                    literal.push(char);
+                }
+                _ => state = IncompleteToken::Literal(char.to_string()),
+            },
             _ if char.is_alphabetic() => match state {
                 IncompleteToken::Literal(ref mut literal) => {
                     literal.push(char);
                 }
                 _ => state = IncompleteToken::Literal(char.to_string()),
             },
-
             ' ' | '\n' | '\t' | ';' | ')' => {
                 match state {
                     IncompleteToken::None => {}
@@ -105,15 +110,15 @@ pub fn tokenize(text: &str) -> Vec<Token> {
     return tokens;
 }
 
-#[derive(Debug)]
-enum TreeNodeType {
+#[derive(Clone, PartialEq, Debug)]
+pub enum TreeNodeType {
     Paren(Vec<TreeNode>),
     Operator(String),
     Number(f64),
     Literal(String),
     Bool(bool),
 }
-#[derive(Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct TreeNode {
     node_type: TreeNodeType,
 }
@@ -179,11 +184,12 @@ pub fn parse(tokens: &[Token]) -> (TreeNode, usize) {
     return (tree_node, tokens.len());
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Void,
     Number(f64),
     Bool(bool),
+    Function(Vec<String>, TreeNodeType),
 }
 
 impl std::fmt::Display for Value {
@@ -196,10 +202,14 @@ impl std::fmt::Display for Value {
             Value::Bool(bool) => {
                 write!(f, "{bool}")
             }
+            Value::Function(args, code) => {
+                write!(f, "fn ({args:?}) {code:?}")
+            }
         }
     }
 }
 
+#[derive(Clone)]
 pub struct Scope<'a> {
     parent: Option<&'a Scope<'a>>,
     variables: HashMap<String, Value>,
@@ -264,7 +274,6 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                 node_type: TreeNodeType::Literal(literal),
             }, ..] => match literal.as_str() {
                 "print" => {
-                    // dbg!("print");
                     let value = execute(&children[1], &mut scope);
                     println!("{value}");
                     value
@@ -275,7 +284,6 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                     }, TreeNode {
                         node_type: TreeNodeType::Operator(operator),
                     }, arg2] => {
-                        // dbg!("let");
                         if operator != "=" {
                             panic!()
                         }
@@ -293,8 +301,6 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                 "if" => match &children[1..] {
                     [condition, if_code, ..] => {
                         let condition_value = execute(condition, &mut scope);
-
-                        // println!("{condition_value}");
 
                         match condition_value {
                             Value::Bool(true) => execute(if_code, &mut scope),
@@ -336,7 +342,48 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                     }
                     _ => panic!(),
                 },
-                _ => panic!(),
+                "fn" => match &children[1..] {
+                    [TreeNode {
+                        node_type: TreeNodeType::Literal(name),
+                    }, TreeNode {
+                        node_type: TreeNodeType::Paren(args),
+                    }, TreeNode { node_type: fn_code }] => {
+                        let args = args
+                            .iter()
+                            .map(|arg| match &arg.node_type {
+                                TreeNodeType::Literal(str) => str.to_string(),
+                                _ => panic!(),
+                            })
+                            .collect::<Vec<_>>();
+
+                        let function = Value::Function(args, fn_code.clone());
+
+                        parent_scope
+                            .variables
+                            .insert(name.to_string(), function.clone());
+
+                        function
+                    }
+                    _ => panic!(),
+                },
+                _ => match scope.get_variable(literal.to_string()).unwrap() {
+                    Value::Function(args, code) => {
+                        // TODO: make this scope be defined in the function definition instead of the function call
+                        let mut func_scope = scope.clone();
+
+                        for (i, key) in args.iter().enumerate() {
+                            let value = execute(
+                                &children[1..].get(i).unwrap(),
+                                &mut scope,
+                            );
+
+                            func_scope.variables.insert(key.to_string(), value);
+                        }
+
+                        execute(&TreeNode { node_type: code }, &mut func_scope)
+                    }
+                    _ => panic!(),
+                },
             },
             [TreeNode {
                 node_type: TreeNodeType::Paren(_),
