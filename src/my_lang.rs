@@ -4,6 +4,8 @@ use std::{borrow::BorrowMut, collections::HashMap};
 enum TokenType {
     OpenParen,
     CloseParen,
+    OpenSquareBrackets,
+    CloseSquareBrackets,
     Operator(String),
     Literal(String),
     Number(f64),
@@ -36,6 +38,7 @@ pub fn tokenize(text: &str) -> Vec<Token> {
     for char in text.chars() {
         match char {
             '(' => tokens.push(Token::new(TokenType::OpenParen)),
+            '[' => tokens.push(Token::new(TokenType::OpenSquareBrackets)),
             '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => {
                 match state.borrow_mut() {
                     IncompleteToken::None => {
@@ -57,7 +60,7 @@ pub fn tokenize(text: &str) -> Vec<Token> {
                 }
                 _ => state = IncompleteToken::Literal(char.to_string()),
             },
-            ' ' | '\n' | '\t' | ';' | ')' => {
+            ' ' | '\n' | '\t' | ';' | ')' | ']' => {
                 match state {
                     IncompleteToken::None => {}
                     IncompleteToken::Number(ref str) => {
@@ -83,6 +86,8 @@ pub fn tokenize(text: &str) -> Vec<Token> {
 
                 if char == ')' {
                     tokens.push(Token::new(TokenType::CloseParen))
+                } else if char == ']' {
+                    tokens.push(Token::new(TokenType::CloseSquareBrackets))
                 }
             }
             '+' | '-' | '*' | '/' | '%' => {
@@ -120,13 +125,57 @@ pub enum TreeNodeType {
     Number(f64),
     Literal(String),
     Bool(bool),
+    List(Vec<TreeNode>),
 }
 #[derive(PartialEq, Clone, Debug)]
 pub struct TreeNode {
     node_type: TreeNodeType,
 }
 
-pub fn parse(tokens: &[Token]) -> (TreeNode, usize) {
+fn parse_simple(token: &Token) -> TreeNode {
+    match &token.token_type {
+        TokenType::Operator(operator) => TreeNode {
+            node_type: TreeNodeType::Operator(operator.to_string()),
+        },
+        TokenType::Number(number) => TreeNode {
+            node_type: TreeNodeType::Number(*number),
+        },
+        TokenType::Literal(literal) => TreeNode {
+            node_type: TreeNodeType::Literal(literal.to_string()),
+        },
+        TokenType::Bool(bool) => TreeNode {
+            node_type: TreeNodeType::Bool(*bool),
+        },
+        TokenType::OpenParen
+        | TokenType::CloseParen
+        | TokenType::OpenSquareBrackets
+        | TokenType::CloseSquareBrackets => {
+            panic!()
+        }
+    }
+}
+
+pub fn parse_array(tokens: &[Token]) -> (TreeNode, usize) {
+    let mut tree_node = TreeNode {
+        node_type: TreeNodeType::List(vec![]),
+    };
+
+    for (i, token) in tokens.iter().enumerate() {
+        match token.token_type {
+            TokenType::CloseSquareBrackets => return (tree_node, i),
+            _ => match tree_node.node_type {
+                TreeNodeType::List(ref mut values) => {
+                    values.push(parse_simple(token))
+                }
+                _ => panic!(),
+            },
+        }
+    }
+
+    return (tree_node, tokens.len());
+}
+
+fn parse_paren(tokens: &[Token]) -> (TreeNode, usize) {
     let mut tree_node = TreeNode {
         node_type: TreeNodeType::Paren(vec![]),
     };
@@ -139,7 +188,7 @@ pub fn parse(tokens: &[Token]) -> (TreeNode, usize) {
                 TreeNodeType::Paren(ref mut children) => {
                     let start_at = i + 1;
 
-                    let (parsed, end) = parse(&tokens[start_at..]);
+                    let (parsed, end) = parse_paren(&tokens[start_at..]);
 
                     children.push(parsed);
 
@@ -149,35 +198,24 @@ pub fn parse(tokens: &[Token]) -> (TreeNode, usize) {
                 _ => panic!(),
             },
             TokenType::CloseParen => return (tree_node, i),
+            TokenType::OpenSquareBrackets => {
+                match tree_node.node_type {
+                    TreeNodeType::Paren(ref mut children) => {
+                        let start_at = i + 1;
+
+                        let (parsed, end) = parse_array(&tokens[start_at..]);
+
+                        children.push(parsed);
+
+                        // skip loop to iteration "end"
+                        iter.nth(end);
+                    }
+                    _ => panic!(),
+                }
+            }
             _ => match tree_node.node_type {
                 TreeNodeType::Paren(ref mut children) => {
-                    match &token.token_type {
-                        TokenType::Operator(operator) => {
-                            children.push(TreeNode {
-                                node_type: TreeNodeType::Operator(
-                                    operator.to_string(),
-                                ),
-                            });
-                        }
-                        TokenType::Number(number) => {
-                            children.push(TreeNode {
-                                node_type: TreeNodeType::Number(*number),
-                            });
-                        }
-                        TokenType::Literal(literal) => {
-                            children.push(TreeNode {
-                                node_type: TreeNodeType::Literal(
-                                    literal.to_string(),
-                                ),
-                            });
-                        }
-                        TokenType::Bool(bool) => {
-                            children.push(TreeNode {
-                                node_type: TreeNodeType::Bool(*bool),
-                            });
-                        }
-                        _ => todo!(),
-                    }
+                    children.push(parse_simple(token))
                 }
                 _ => panic!(),
             },
@@ -187,12 +225,17 @@ pub fn parse(tokens: &[Token]) -> (TreeNode, usize) {
     return (tree_node, tokens.len());
 }
 
+pub fn parse(tokens: &[Token]) -> TreeNode {
+    parse_paren(tokens).0
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Void,
     Number(f64),
     Bool(bool),
     Function(Vec<String>, TreeNodeType),
+    List(Vec<Value>),
 }
 
 impl std::fmt::Display for Value {
@@ -207,6 +250,14 @@ impl std::fmt::Display for Value {
             }
             Value::Function(args, code) => {
                 write!(f, "fn ({args:?}) {code:?}")
+            }
+            Value::List(list) => {
+                let values = list
+                    .iter()
+                    .map(|value| (format!("{}", value)))
+                    .collect::<Vec<_>>();
+
+                write!(f, "[{}]", values.join(", "))
             }
         }
     }
@@ -255,22 +306,27 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                     return Value::Bool(operand_1 == operand_2);
                 }
 
-                let operand_1 = match operand_1 {
-                    Value::Number(n) => n,
-                    _ => panic!(),
-                };
-
-                let operand_2: f64 = match operand_2 {
-                    Value::Number(n) => n,
-                    _ => panic!(),
-                };
-
-                match operator.as_str() {
-                    "+" => Value::Number(operand_1 + operand_2),
-                    "-" => Value::Number(operand_1 - operand_2),
-                    "*" => Value::Number(operand_1 * operand_2),
-                    "/" => Value::Number(operand_1 / operand_2),
-                    "%" => Value::Number(operand_1 % operand_2),
+                match (operand_1, operand_2) {
+                    (Value::Number(n1), Value::Number(n2)) => {
+                        match operator.as_str() {
+                            "+" => Value::Number(n1 + n2),
+                            "-" => Value::Number(n1 - n2),
+                            "*" => Value::Number(n1 * n2),
+                            "/" => Value::Number(n1 / n2),
+                            "%" => Value::Number(n1 % n2),
+                            _ => panic!(),
+                        }
+                    }
+                    (Value::List(values), new_value) => {
+                        let mut cloned_values = values.clone();
+                        cloned_values.push(new_value);
+                        Value::List(cloned_values)
+                    }
+                    (new_value, Value::List(values)) => {
+                        let mut cloned_values = values.clone();
+                        cloned_values.push(new_value);
+                        Value::List(cloned_values)
+                    }
                     _ => panic!(),
                 }
             }
@@ -402,6 +458,25 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
             [TreeNode {
                 node_type: TreeNodeType::Paren(_),
             }] => execute(&children[0], &mut scope),
+            [index_node, TreeNode {
+                node_type: TreeNodeType::Literal(string),
+            }] => match scope.get_variable(string.to_string()) {
+                Some(value) => match value {
+                    Value::List(values) => {
+                        match execute(index_node, &mut scope) {
+                            Value::Number(index) => values
+                                .get(index.floor() as usize)
+                                .unwrap()
+                                .clone(),
+                            _ => {
+                                panic!("Lists can only be indexed with numbers")
+                            }
+                        }
+                    }
+                    _ => panic!(),
+                },
+                None => panic!(),
+            },
             _ => {
                 let values =
                     children.iter().map(|child| execute(child, &mut scope));
@@ -420,8 +495,12 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                 Some(value) => value.clone(),
             }
         }
-        _ => {
-            panic!()
-        }
+        TreeNodeType::List(nodes) => Value::List(
+            nodes
+                .iter()
+                .map(|node| execute(node, &mut scope))
+                .collect::<Vec<_>>(),
+        ),
+        TreeNodeType::Operator(_) => panic!(),
     }
 }

@@ -8,22 +8,13 @@ fn run_code_string(str: &str) {
     use my_lang::{execute, parse, tokenize};
 
     let tokens = tokenize(str);
-    let ast = parse(&tokens.into_boxed_slice()).0;
+    let ast = parse(&tokens.into_boxed_slice());
     execute(&ast, &mut Scope::new(None, HashMap::new()));
 }
 
 fn main() {
     run_code_string(
         "(
-                (let a = ((42 + 69) * 1337))
-                (let b = 148407)
-
-                (if (a == b) (
-                    (print 12345)
-                ) else (
-                    (print 54321)
-                ))
-
                 (fn factorial (n) (
                     (if (n == 1) (
                         n
@@ -35,6 +26,12 @@ fn main() {
                 (for i in 10 (
                     (print (factorial (i + 1)))
                 ))
+
+                (let arr = [1 2 3])
+                (print arr)
+                (let arr = (arr + 4))
+                (print arr)
+                (print 2)
             )",
     );
 }
