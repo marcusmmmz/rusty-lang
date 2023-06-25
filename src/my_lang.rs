@@ -277,15 +277,25 @@ impl Scope<'_> {
         Scope { parent, variables }
     }
 
+    pub fn get_variable_and_scope(
+        &self,
+        key: String,
+    ) -> Option<(Value, Scope)> {
+        match self.variables.get(&key) {
+            Some(value) => Some((value.clone(), self.clone())),
+            None => match self.parent {
+                None => None,
+                Some(parent) => parent.get_variable_and_scope(key),
+            },
+        }
+    }
+
     pub fn get_variable(&self, key: String) -> Option<Value> {
         match self.variables.get(&key) {
             Some(value) => Some(value.clone()),
             None => match self.parent {
                 None => None,
-                Some(parent) => match parent.get_variable(key) {
-                    None => None,
-                    Some(value) => Some(value),
-                },
+                Some(parent) => parent.get_variable(key),
             },
         }
     }
@@ -431,29 +441,38 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                     }
                     _ => panic!(),
                 },
-                _ => match scope.get_variable(literal.to_string()).unwrap() {
-                    Value::Function(args, code) => {
-                        // TODO: make this scope be defined in the function definition instead of the function call
-                        let mut func_scope = scope.clone();
+                _ => {
+                    let (value, _) = scope
+                        .get_variable_and_scope(literal.to_string())
+                        .unwrap();
 
-                        for (i, key) in args.iter().enumerate() {
-                            let value = execute(
-                                &children[1..].get(i).unwrap(),
-                                &mut scope,
-                            );
+                    let (args, code) = match value {
+                        Value::Function(args, code) => (args, code),
+                        _ => panic!("This is not a function"),
+                    };
 
-                            func_scope.variables.insert(key.to_string(), value);
-                        }
+                    let values = (0..(args.len()))
+                        .into_iter()
+                        .map(|i| execute(&children[1..][i], &mut scope))
+                        .collect::<Vec<_>>();
 
-                        func_scope.variables.insert(
-                            literal.to_string(),
-                            Value::Function(args, code.clone()),
-                        );
+                    let (_, mut func_scope) = scope
+                        .get_variable_and_scope(literal.to_string())
+                        .unwrap();
 
-                        execute(&TreeNode { node_type: code }, &mut func_scope)
+                    for (i, arg) in args.iter().enumerate() {
+                        func_scope
+                            .variables
+                            .insert(arg.to_string(), values[i].clone());
                     }
-                    _ => panic!(),
-                },
+
+                    func_scope.variables.insert(
+                        literal.to_string(),
+                        Value::Function(args, code.clone()),
+                    );
+
+                    execute(&TreeNode { node_type: code }, &mut func_scope)
+                }
             },
             [TreeNode {
                 node_type: TreeNodeType::Paren(_),

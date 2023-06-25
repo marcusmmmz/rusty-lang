@@ -13,6 +13,17 @@ fn run_code_string(str: &str) {
 }
 
 fn main() {
+    // run_code_string(
+    //     "(
+    //             (fn f () (
+    //                 a
+    //             ))
+
+    //             (let a = 1337)
+    //             (print (f ()))
+    //         )",
+    // );
+
     run_code_string(
         "(
                 (fn factorial (n) (
