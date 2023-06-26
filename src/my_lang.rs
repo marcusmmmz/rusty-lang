@@ -13,7 +13,7 @@ enum TokenType {
 }
 
 #[derive(Debug)]
-pub struct Token {
+struct Token {
     token_type: TokenType,
 }
 impl Token {
@@ -30,7 +30,7 @@ enum IncompleteToken {
     Operator(String),
 }
 
-pub fn tokenize(text: &str) -> Vec<Token> {
+fn tokenize(text: &str) -> Vec<Token> {
     let mut tokens = vec![];
 
     let mut state = IncompleteToken::None;
@@ -155,7 +155,7 @@ fn parse_simple(token: &Token) -> TreeNode {
     }
 }
 
-pub fn parse_array(tokens: &[Token]) -> (TreeNode, usize) {
+fn parse_array(tokens: &[Token]) -> (TreeNode, usize) {
     let mut tree_node = TreeNode {
         node_type: TreeNodeType::List(vec![]),
     };
@@ -225,7 +225,7 @@ fn parse_paren(tokens: &[Token]) -> (TreeNode, usize) {
     return (tree_node, tokens.len());
 }
 
-pub fn parse(tokens: &[Token]) -> TreeNode {
+fn parse(tokens: &[Token]) -> TreeNode {
     parse_paren(tokens).0
 }
 
@@ -264,23 +264,20 @@ impl std::fmt::Display for Value {
 }
 
 #[derive(Clone)]
-pub struct Scope {
+struct Scope {
     parent: Option<Rc<RefCell<Scope>>>,
     variables: HashMap<String, Value>,
 }
 
 impl Scope {
-    pub fn new(
+    fn new(
         parent: Option<Rc<RefCell<Scope>>>,
         variables: HashMap<String, Value>,
     ) -> Scope {
         Scope { parent, variables }
     }
 
-    pub fn get_variable_and_scope(
-        &self,
-        key: String,
-    ) -> Option<(Value, Scope)> {
+    fn get_variable_and_scope(&self, key: String) -> Option<(Value, Scope)> {
         match self.variables.get(&key) {
             Some(value) => Some((value.clone(), self.clone())),
             None => match &self.parent {
@@ -290,7 +287,7 @@ impl Scope {
         }
     }
 
-    pub fn get_variable(&self, key: String) -> Option<Value> {
+    fn get_variable(&self, key: String) -> Option<Value> {
         match self.variables.get(&key) {
             Some(value) => Some(value.clone()),
             None => match &self.parent {
@@ -300,22 +297,22 @@ impl Scope {
         }
     }
 
-    pub fn declare_variable(&mut self, key: String, value: Value) {
+    fn declare_variable(&mut self, key: String, value: Value) {
         self.variables.insert(key, value);
     }
 
-    pub fn get_mut_parent(&mut self) -> Option<std::cell::RefMut<'_, Scope>> {
+    fn get_mut_parent(&mut self) -> Option<std::cell::RefMut<'_, Scope>> {
         match (&self.parent).as_deref() {
             None => None,
             Some(parent) => Some(parent.borrow_mut()),
         }
     }
 
-    pub fn declare_variable_on_parent(&mut self, key: String, value: Value) {
+    fn declare_variable_on_parent(&mut self, key: String, value: Value) {
         self.get_mut_parent().unwrap().declare_variable(key, value);
     }
 
-    pub fn mutate_variable(&mut self, key: String, value: Value) {
+    fn mutate_variable(&mut self, key: String, value: Value) {
         match self.variables.get(&key) {
             None => {
                 self.get_mut_parent()
@@ -327,10 +324,7 @@ impl Scope {
     }
 }
 
-pub fn execute(
-    tree_node: &TreeNode,
-    parent_scope: Rc<RefCell<Scope>>,
-) -> Value {
+fn execute(tree_node: &TreeNode, parent_scope: Rc<RefCell<Scope>>) -> Value {
     let scope =
         Rc::new(RefCell::new(Scope::new(Some(parent_scope), HashMap::new())));
 
@@ -531,14 +525,18 @@ pub fn execute(
                     match (*scope)
                         .borrow()
                         .get_variable_and_scope(literal.to_string())
-                        .unwrap()
-                    {
+                        .expect(
+                            format!("Function '{literal}' not defined")
+                                .as_str(),
+                        ) {
                         (Value::Function(args, code), mut func_scope) => {
                             for (i, key) in args.iter().enumerate() {
                                 func_scope.declare_variable(
                                     key.to_string(),
                                     execute(
-                                        &children[1..].get(i).unwrap(),
+                                        &children[1..].get(i).expect(
+                                            "Not enough arguments passed to function",
+                                        ),
                                         Rc::clone(&scope),
                                     ),
                                 )
@@ -554,7 +552,7 @@ pub fn execute(
                                 Rc::new(RefCell::new(func_scope)),
                             )
                         }
-                        _ => panic!(),
+                        _ => panic!("This is not a function"),
                     }
                 }
             },
@@ -611,4 +609,13 @@ pub fn execute(
         ),
         TreeNodeType::Operator(_) => panic!(),
     }
+}
+
+pub fn run_code_string(str: &str) -> Value {
+    let tokens: Vec<Token> = tokenize(str);
+    let ast = parse(&tokens.into_boxed_slice());
+    execute(
+        &ast,
+        Rc::new(RefCell::new(Scope::new(None, HashMap::new()))),
+    )
 }
