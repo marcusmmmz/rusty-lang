@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::my_lang::Scope;
 
@@ -9,21 +9,13 @@ fn run_code_string(str: &str) {
 
     let tokens = tokenize(str);
     let ast = parse(&tokens.into_boxed_slice());
-    execute(&ast, &mut Scope::new(None, HashMap::new()));
+    execute(
+        &ast,
+        Rc::new(RefCell::new(Scope::new(None, HashMap::new()))),
+    );
 }
 
 fn main() {
-    // run_code_string(
-    //     "(
-    //             (fn f () (
-    //                 a
-    //             ))
-
-    //             (let a = 1337)
-    //             (print (f ()))
-    //         )",
-    // );
-
     run_code_string(
         "(
                 (fn factorial (n) (
@@ -40,9 +32,8 @@ fn main() {
 
                 (let arr = [1 2 3])
                 (print arr)
-                (let arr = (arr + 4))
+                (arr = (arr + 4))
                 (print arr)
-                (print 2)
             )",
     );
 }

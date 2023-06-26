@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, collections::HashMap};
+use std::{borrow::BorrowMut, cell::RefCell, collections::HashMap, rc::Rc};
 
 #[derive(Debug)]
 enum TokenType {
@@ -264,16 +264,16 @@ impl std::fmt::Display for Value {
 }
 
 #[derive(Clone)]
-pub struct Scope<'a> {
-    parent: Option<&'a Scope<'a>>,
+pub struct Scope {
+    parent: Option<Rc<RefCell<Scope>>>,
     variables: HashMap<String, Value>,
 }
 
-impl Scope<'_> {
-    pub fn new<'a>(
-        parent: Option<&'a Scope<'a>>,
+impl Scope {
+    pub fn new(
+        parent: Option<Rc<RefCell<Scope>>>,
         variables: HashMap<String, Value>,
-    ) -> Scope<'a> {
+    ) -> Scope {
         Scope { parent, variables }
     }
 
@@ -283,9 +283,9 @@ impl Scope<'_> {
     ) -> Option<(Value, Scope)> {
         match self.variables.get(&key) {
             Some(value) => Some((value.clone(), self.clone())),
-            None => match self.parent {
+            None => match &self.parent {
                 None => None,
-                Some(parent) => parent.get_variable_and_scope(key),
+                Some(parent) => (*parent).borrow().get_variable_and_scope(key),
             },
         }
     }
@@ -293,24 +293,68 @@ impl Scope<'_> {
     pub fn get_variable(&self, key: String) -> Option<Value> {
         match self.variables.get(&key) {
             Some(value) => Some(value.clone()),
-            None => match self.parent {
+            None => match &self.parent {
                 None => None,
-                Some(parent) => parent.get_variable(key),
+                Some(parent) => (**parent).borrow().get_variable(key),
             },
         }
     }
+
+    pub fn declare_variable(&mut self, key: String, value: Value) {
+        self.variables.insert(key, value);
+    }
+
+    pub fn get_mut_parent(&mut self) -> Option<std::cell::RefMut<'_, Scope>> {
+        match (&self.parent).as_deref() {
+            None => None,
+            Some(parent) => Some(parent.borrow_mut()),
+        }
+    }
+
+    pub fn declare_variable_on_parent(&mut self, key: String, value: Value) {
+        self.get_mut_parent().unwrap().declare_variable(key, value);
+    }
+
+    pub fn mutate_variable(&mut self, key: String, value: Value) {
+        match self.variables.get(&key) {
+            None => {
+                self.get_mut_parent()
+                    .expect("Variable not defined")
+                    .mutate_variable(key, value);
+            }
+            Some(_) => self.declare_variable(key, value),
+        };
+    }
 }
 
-pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
-    let mut scope = Scope::new(Some(parent_scope), HashMap::new());
+pub fn execute(
+    tree_node: &TreeNode,
+    parent_scope: Rc<RefCell<Scope>>,
+) -> Value {
+    let scope =
+        Rc::new(RefCell::new(Scope::new(Some(parent_scope), HashMap::new())));
 
     match &tree_node.node_type {
         TreeNodeType::Paren(children) => match &children.as_slice() {
             [operand_1, TreeNode {
                 node_type: TreeNodeType::Operator(operator),
             }, operand_2] => {
-                let operand_1 = execute(operand_1, &mut scope);
-                let operand_2 = execute(operand_2, &mut scope);
+                if operator == "=" {
+                    match &operand_1.node_type {
+                        TreeNodeType::Literal(str) => {
+                            let a = execute(operand_2, Rc::clone(&scope));
+                            (*scope)
+                                .borrow_mut()
+                                .mutate_variable(str.to_string(), a);
+
+                            return Value::Void;
+                        }
+                        _ => panic!(),
+                    }
+                }
+
+                let operand_1 = execute(operand_1, Rc::clone(&scope));
+                let operand_2 = execute(operand_2, Rc::clone(&scope));
 
                 if operator == "==" {
                     return Value::Bool(operand_1 == operand_2);
@@ -342,12 +386,12 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
             }
             [TreeNode {
                 node_type: TreeNodeType::Literal(_),
-            }] => execute(&children[0], &mut scope),
+            }] => execute(&children[0], scope),
             [TreeNode {
                 node_type: TreeNodeType::Literal(literal),
             }, ..] => match literal.as_str() {
                 "print" => {
-                    let value = execute(&children[1], &mut scope);
+                    let value = execute(&children[1], Rc::clone(&scope));
                     println!("{value}");
                     value
                 }
@@ -361,11 +405,12 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                             panic!()
                         }
 
-                        let value = execute(&arg2, &mut scope);
+                        let value = execute(&arg2, Rc::clone(&scope));
 
-                        parent_scope
-                            .variables
-                            .insert(arg1.to_string(), value.clone());
+                        (*scope).borrow_mut().declare_variable_on_parent(
+                            arg1.to_string(),
+                            value.clone(),
+                        );
 
                         return value;
                     }
@@ -373,13 +418,16 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                 },
                 "if" => match &children[1..] {
                     [condition, if_code, ..] => {
-                        let condition_value = execute(condition, &mut scope);
+                        let condition_value =
+                            execute(condition, Rc::clone(&scope));
 
                         match condition_value {
-                            Value::Bool(true) => execute(if_code, &mut scope),
+                            Value::Bool(true) => {
+                                execute(if_code, Rc::clone(&scope))
+                            }
                             Value::Bool(false) => match children.get(4) {
                                 Some(else_code) => {
-                                    execute(else_code, &mut scope)
+                                    execute(else_code, Rc::clone(&scope))
                                 }
                                 None => Value::Void,
                             },
@@ -398,19 +446,38 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                             panic!()
                         }
 
-                        match execute(iterations, &mut scope) {
+                        match execute(iterations, Rc::clone(&scope)) {
                             Value::Number(iterations) => {
                                 let iterations = iterations.floor() as i32;
                                 for i in 0..iterations {
-                                    scope.variables.insert(
+                                    (*scope).borrow_mut().declare_variable(
                                         iteration_name.to_string(),
                                         Value::Number(i as f64),
                                     );
-                                    execute(for_code, &mut scope);
+                                    execute(for_code, Rc::clone(&scope));
                                 }
-                                scope.variables.remove(iteration_name);
+
+                                (*scope)
+                                    .borrow_mut()
+                                    .variables
+                                    .remove(iteration_name);
                             }
-                            _ => panic!(),
+                            Value::List(values) => {
+                                let iterations = values.len();
+                                for i in 0..iterations {
+                                    (*scope).borrow_mut().declare_variable(
+                                        iteration_name.to_string(),
+                                        Value::Number(i as f64),
+                                    );
+                                    execute(for_code, Rc::clone(&scope));
+                                }
+
+                                (*scope)
+                                    .borrow_mut()
+                                    .variables
+                                    .remove(iteration_name);
+                            }
+                            _ => panic!("This isn't iterable"),
                         }
 
                         Value::Void
@@ -433,56 +500,73 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
 
                         let function = Value::Function(args, fn_code.clone());
 
-                        parent_scope
-                            .variables
-                            .insert(name.to_string(), function.clone());
+                        (*scope).borrow_mut().declare_variable_on_parent(
+                            name.to_string(),
+                            function.clone(),
+                        );
 
                         function
                     }
                     _ => panic!(),
                 },
+                "get" => match &children[1..] {
+                    [arr, index] => match execute(arr, Rc::clone(&scope)) {
+                        Value::List(values) => match execute(index, scope) {
+                            Value::Number(number) => {
+                                let a = number.floor() as usize;
+                                values
+                                    .get(a)
+                                    .expect("List out of bounds")
+                                    .clone()
+                            }
+                            _ => panic!(
+                                "Get second parameter should be a number"
+                            ),
+                        },
+                        _ => panic!("Get's first parameter should be a list"),
+                    },
+                    _ => panic!(),
+                },
                 _ => {
-                    let (value, _) = scope
+                    match (*scope)
+                        .borrow()
                         .get_variable_and_scope(literal.to_string())
-                        .unwrap();
+                        .unwrap()
+                    {
+                        (Value::Function(args, code), mut func_scope) => {
+                            for (i, key) in args.iter().enumerate() {
+                                func_scope.declare_variable(
+                                    key.to_string(),
+                                    execute(
+                                        &children[1..].get(i).unwrap(),
+                                        Rc::clone(&scope),
+                                    ),
+                                )
+                            }
 
-                    let (args, code) = match value {
-                        Value::Function(args, code) => (args, code),
-                        _ => panic!("This is not a function"),
-                    };
+                            func_scope.declare_variable(
+                                literal.to_string(),
+                                Value::Function(args, code.clone()),
+                            );
 
-                    let values = (0..(args.len()))
-                        .into_iter()
-                        .map(|i| execute(&children[1..][i], &mut scope))
-                        .collect::<Vec<_>>();
-
-                    let (_, mut func_scope) = scope
-                        .get_variable_and_scope(literal.to_string())
-                        .unwrap();
-
-                    for (i, arg) in args.iter().enumerate() {
-                        func_scope
-                            .variables
-                            .insert(arg.to_string(), values[i].clone());
+                            execute(
+                                &TreeNode { node_type: code },
+                                Rc::new(RefCell::new(func_scope)),
+                            )
+                        }
+                        _ => panic!(),
                     }
-
-                    func_scope.variables.insert(
-                        literal.to_string(),
-                        Value::Function(args, code.clone()),
-                    );
-
-                    execute(&TreeNode { node_type: code }, &mut func_scope)
                 }
             },
             [TreeNode {
                 node_type: TreeNodeType::Paren(_),
-            }] => execute(&children[0], &mut scope),
+            }] => execute(&children[0], Rc::clone(&scope)),
             [index_node, TreeNode {
                 node_type: TreeNodeType::Literal(string),
-            }] => match scope.get_variable(string.to_string()) {
+            }] => match (*scope).borrow().get_variable(string.to_string()) {
                 Some(value) => match value {
                     Value::List(values) => {
-                        match execute(index_node, &mut scope) {
+                        match execute(index_node, Rc::clone(&scope)) {
                             Value::Number(index) => values
                                 .get(index.floor() as usize)
                                 .unwrap()
@@ -497,8 +581,9 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
                 None => panic!(),
             },
             _ => {
-                let values =
-                    children.iter().map(|child| execute(child, &mut scope));
+                let values = children
+                    .iter()
+                    .map(|child| execute(child, Rc::clone(&scope)));
 
                 match values.last() {
                     Some(value) => value,
@@ -509,15 +594,19 @@ pub fn execute(tree_node: &TreeNode, parent_scope: &mut Scope) -> Value {
         TreeNodeType::Bool(bool) => Value::Bool(*bool),
         TreeNodeType::Number(number) => Value::Number(*number),
         TreeNodeType::Literal(variable) => {
-            match scope.get_variable(variable.to_string()) {
-                None => panic!(),
+            match (*scope).borrow().get_variable(variable.to_string()) {
+                None => {
+                    panic!(
+                        "Variable '{variable}' not defined or is not in scope"
+                    )
+                }
                 Some(value) => value.clone(),
             }
         }
         TreeNodeType::List(nodes) => Value::List(
             nodes
                 .iter()
-                .map(|node| execute(node, &mut scope))
+                .map(|node| execute(node, Rc::clone(&scope)))
                 .collect::<Vec<_>>(),
         ),
         TreeNodeType::Operator(_) => panic!(),
