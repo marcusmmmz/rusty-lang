@@ -6,6 +6,8 @@ enum TokenType {
     CloseParen,
     OpenSquareBrackets,
     CloseSquareBrackets,
+    Char(char),
+    String(String),
     Operator(String),
     Literal(String),
     Number(f64),
@@ -28,6 +30,8 @@ enum IncompleteToken {
     Number(String),
     Literal(String),
     Operator(String),
+    Char(Option<char>),
+    String(String),
 }
 
 fn tokenize(text: &str) -> Vec<Token> {
@@ -36,9 +40,46 @@ fn tokenize(text: &str) -> Vec<Token> {
     let mut state = IncompleteToken::None;
 
     for char in text.chars() {
+        match state {
+            IncompleteToken::Char(None) => {
+                state = IncompleteToken::Char(Some(char));
+                continue;
+            }
+            IncompleteToken::String(ref mut string) => {
+                if char == '"' {
+                    tokens.push(Token {
+                        token_type: TokenType::String(string.to_string()),
+                    });
+                    state = IncompleteToken::None;
+                } else {
+                    string.push(char);
+                }
+                continue;
+            }
+            _ => {}
+        }
+
         match char {
             '(' => tokens.push(Token::new(TokenType::OpenParen)),
             '[' => tokens.push(Token::new(TokenType::OpenSquareBrackets)),
+            '\'' => match state {
+                IncompleteToken::None => {
+                    state = IncompleteToken::Char(None);
+                }
+                IncompleteToken::Char(char) => {
+                    tokens.push(Token {
+                        token_type: TokenType::Char(char.unwrap()),
+                    });
+                    state = IncompleteToken::None;
+                }
+                _ => panic!(),
+            },
+            '"' => match state {
+                IncompleteToken::None => {
+                    state = IncompleteToken::String("".to_owned());
+                }
+                _ => panic!(),
+            },
             '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => {
                 match state.borrow_mut() {
                     IncompleteToken::None => {
@@ -80,6 +121,10 @@ fn tokenize(text: &str) -> Vec<Token> {
                             str.to_string(),
                         )));
                     }
+                    IncompleteToken::Char(_) => {
+                        panic!("Empty chars are not permitted")
+                    }
+                    IncompleteToken::String(_) => panic!(),
                 }
 
                 state = IncompleteToken::None;
@@ -125,6 +170,8 @@ pub enum TreeNodeType {
     Number(f64),
     Literal(String),
     Bool(bool),
+    Char(char),
+    String(String),
     List(Vec<TreeNode>),
 }
 #[derive(PartialEq, Clone, Debug)]
@@ -136,6 +183,12 @@ fn parse_simple(token: &Token) -> TreeNode {
     match &token.token_type {
         TokenType::Operator(operator) => TreeNode {
             node_type: TreeNodeType::Operator(operator.to_string()),
+        },
+        TokenType::Char(char) => TreeNode {
+            node_type: TreeNodeType::Char(*char),
+        },
+        TokenType::String(string) => TreeNode {
+            node_type: TreeNodeType::String(string.to_string()),
         },
         TokenType::Number(number) => TreeNode {
             node_type: TreeNodeType::Number(*number),
@@ -234,6 +287,8 @@ pub enum Value {
     Void,
     Number(f64),
     Bool(bool),
+    Char(char),
+    String(String),
     Function(Vec<String>, TreeNodeType),
     List(Vec<Value>),
 }
@@ -258,6 +313,12 @@ impl std::fmt::Display for Value {
                     .collect::<Vec<_>>();
 
                 write!(f, "[{}]", values.join(", "))
+            }
+            Value::Char(char) => {
+                write!(f, "'{char}'")
+            }
+            Value::String(string) => {
+                write!(f, "\"{string}\"")
             }
         }
     }
@@ -372,8 +433,23 @@ fn execute(tree_node: &TreeNode, parent_scope: Rc<RefCell<Scope>>) -> Value {
                     }
                     (new_value, Value::List(values)) => {
                         let mut cloned_values = values.clone();
-                        cloned_values.push(new_value);
+                        cloned_values.insert(0, new_value);
                         Value::List(cloned_values)
+                    }
+                    (Value::String(string1), Value::String(string2)) => {
+                        let mut cloned_string = string1.clone();
+                        cloned_string.push_str(&string2);
+                        Value::String(cloned_string)
+                    }
+                    (Value::String(string), Value::Char(char)) => {
+                        let mut cloned_string = string.clone();
+                        cloned_string.push(char);
+                        Value::String(cloned_string)
+                    }
+                    (Value::Char(char), Value::String(string)) => {
+                        let mut cloned_string = string.clone();
+                        cloned_string.insert(0, char);
+                        Value::String(cloned_string)
                     }
                     _ => panic!(),
                 }
@@ -408,7 +484,7 @@ fn execute(tree_node: &TreeNode, parent_scope: Rc<RefCell<Scope>>) -> Value {
 
                         return value;
                     }
-                    _ => panic!(),
+                    _ => panic!("Invalid variable declaraion syntax"),
                 },
                 "if" => match &children[1..] {
                     [condition, if_code, ..] => {
@@ -435,44 +511,31 @@ fn execute(tree_node: &TreeNode, parent_scope: Rc<RefCell<Scope>>) -> Value {
                         node_type: TreeNodeType::Literal(iteration_name),
                     }, TreeNode {
                         node_type: TreeNodeType::Literal(operator),
-                    }, iterations, for_code] => {
+                    }, iterator, for_code] => {
                         if operator != "in" {
                             panic!()
                         }
 
-                        match execute(iterations, Rc::clone(&scope)) {
+                        let iterator = execute(iterator, Rc::clone(&scope));
+
+                        let iterations = match iterator {
                             Value::Number(iterations) => {
-                                let iterations = iterations.floor() as i32;
-                                for i in 0..iterations {
-                                    (*scope).borrow_mut().declare_variable(
-                                        iteration_name.to_string(),
-                                        Value::Number(i as f64),
-                                    );
-                                    execute(for_code, Rc::clone(&scope));
-                                }
-
-                                (*scope)
-                                    .borrow_mut()
-                                    .variables
-                                    .remove(iteration_name);
+                                iterations.floor() as usize
                             }
-                            Value::List(values) => {
-                                let iterations = values.len();
-                                for i in 0..iterations {
-                                    (*scope).borrow_mut().declare_variable(
-                                        iteration_name.to_string(),
-                                        Value::Number(i as f64),
-                                    );
-                                    execute(for_code, Rc::clone(&scope));
-                                }
-
-                                (*scope)
-                                    .borrow_mut()
-                                    .variables
-                                    .remove(iteration_name);
-                            }
+                            Value::List(values) => values.len(),
+                            Value::String(string) => string.len(),
                             _ => panic!("This isn't iterable"),
+                        };
+
+                        for i in 0..iterations {
+                            (*scope).borrow_mut().declare_variable(
+                                iteration_name.to_string(),
+                                Value::Number(i as f64),
+                            );
+                            execute(for_code, Rc::clone(&scope));
                         }
+
+                        (*scope).borrow_mut().variables.remove(iteration_name);
 
                         Value::Void
                     }
@@ -504,22 +567,30 @@ fn execute(tree_node: &TreeNode, parent_scope: Rc<RefCell<Scope>>) -> Value {
                     _ => panic!(),
                 },
                 "get" => match &children[1..] {
-                    [arr, index] => match execute(arr, Rc::clone(&scope)) {
-                        Value::List(values) => match execute(index, scope) {
+                    [tree_node, index] => {
+                        let values = match execute(tree_node, Rc::clone(&scope)) {
+                            Value::List(values) => values,
+                            Value::String(string) => string
+                                .chars()
+                                .map(|char| Value::Char(char))
+                                .collect::<Vec<_>>(),
+                            _ => panic!("Get's first parameter should be a list or a string")
+                        };
+
+                        match execute(index, scope) {
                             Value::Number(number) => {
-                                let a = number.floor() as usize;
+                                let index = number.floor() as usize;
                                 values
-                                    .get(a)
+                                    .get(index)
                                     .expect("List out of bounds")
                                     .clone()
                             }
                             _ => panic!(
                                 "Get second parameter should be a number"
                             ),
-                        },
-                        _ => panic!("Get's first parameter should be a list"),
-                    },
-                    _ => panic!(),
+                        }
+                    }
+                    _ => panic!("Get should have a list/string and an index"),
                 },
                 _ => {
                     match (*scope)
@@ -552,7 +623,7 @@ fn execute(tree_node: &TreeNode, parent_scope: Rc<RefCell<Scope>>) -> Value {
                                 Rc::new(RefCell::new(func_scope)),
                             )
                         }
-                        _ => panic!("This is not a function"),
+                        _ => panic!("'{literal}' is not a function"),
                     }
                 }
             },
@@ -591,6 +662,8 @@ fn execute(tree_node: &TreeNode, parent_scope: Rc<RefCell<Scope>>) -> Value {
         },
         TreeNodeType::Bool(bool) => Value::Bool(*bool),
         TreeNodeType::Number(number) => Value::Number(*number),
+        TreeNodeType::Char(char) => Value::Char(*char),
+        TreeNodeType::String(string) => Value::String(string.to_string()),
         TreeNodeType::Literal(variable) => {
             match (*scope).borrow().get_variable(variable.to_string()) {
                 None => {

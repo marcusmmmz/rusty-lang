@@ -8,7 +8,7 @@ fn main() {
 
     run_code_string(
         "(
-                (print 1337)
+                (print \"Hello world\")
             )",
     );
 }

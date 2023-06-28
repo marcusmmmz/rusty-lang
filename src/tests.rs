@@ -113,6 +113,24 @@ const LIST_LEN_CODE: &str = "(fn list_len (list) (
 ))";
 
 #[test]
+fn get_list_length() {
+    assert_eq!(
+        Value::Number(3.0),
+        run_code_string(
+            format!(
+                "(
+					{LIST_LEN_CODE}
+	
+					(let list = [1 2 3])
+					(list_len list)
+				)"
+            )
+            .as_str(),
+        )
+    );
+}
+
+#[test]
 fn pop_from_list() {
     assert_eq!(
         Value::List(vec![Value::Number(1.0), Value::Number(2.0)]),
@@ -137,16 +155,49 @@ fn pop_from_list() {
 }
 
 #[test]
-fn get_list_length() {
+fn iterate_string() {
     assert_eq!(
-        Value::Number(3.0),
+        Value::List(vec![Value::Char('a'), Value::Char('b'), Value::Char('c')]),
         run_code_string(
             format!(
                 "(
-					{LIST_LEN_CODE}
-	
-					(let list = [1 2 3])
-					(list_len list)
+                    (let string = \"abc\")
+                    (let list = []);
+					(for i in string (
+                        (let char = (get string i))
+                        (list = (list + char))
+                    ))
+                    list
+				)"
+            )
+            .as_str(),
+        )
+    );
+}
+
+#[test]
+fn concatenate_strings() {
+    assert_eq!(
+        Value::String(("banana").to_string()),
+        run_code_string(
+            format!(
+                "(
+                    ((\"ban\" + \"ana\")
+				)"
+            )
+            .as_str(),
+        )
+    );
+}
+
+#[test]
+fn concatenate_string_with_character() {
+    assert_eq!(
+        Value::String("banana".to_string()),
+        run_code_string(
+            format!(
+                "(
+                    ((\"ba\" + 'n') + ('a' + \"na\"))
 				)"
             )
             .as_str(),
