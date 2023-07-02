@@ -1,5 +1,5 @@
 #[cfg(test)]
-use super::my_lang::{run_code_string, Value};
+use crate::my_lisp::{run_code_string, Value};
 
 #[test]
 #[should_panic]

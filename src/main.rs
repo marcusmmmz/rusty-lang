@@ -1,14 +1,14 @@
-use crate::my_lang::run_code_string;
-
 mod my_lang;
-mod tests;
+mod my_lisp;
 
 fn main() {
-    // Right now most of the code is in src/tests
+    // most actual code is in the languages tests
 
-    run_code_string(
+    my_lang::run_code_string("let a = 10;");
+
+    my_lisp::run_code_string(
         "(
-                (print \"Hello world\")
-            )",
+            (print \"Hello world\")
+        )",
     );
 }

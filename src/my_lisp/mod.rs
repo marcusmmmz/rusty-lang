@@ -1,5 +1,7 @@
 use std::{borrow::BorrowMut, cell::RefCell, collections::HashMap, rc::Rc};
 
+mod tests;
+
 #[derive(Debug)]
 enum TokenType {
     OpenParen,
