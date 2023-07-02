@@ -11,6 +11,8 @@ enum TokenType {
     Number(f32),
     Identifier(String),
     BinaryOperator(BinaryOperatorType),
+    OpenParen,
+    ClosedParen,
 }
 
 #[derive(Debug)]
@@ -47,19 +49,19 @@ fn tokenize(text: &str) -> Vec<Token> {
                 State::None => state = State::Number(char.to_string()),
                 State::Number(ref mut sequence) => sequence.push(char),
                 State::Identifier(ref mut sequence) => sequence.push(char),
-                _ => todo!(), // State::BinaryOperator(_) => todo!(),
+                _ => todo!(),
             },
             '=' => match state {
                 State::None => {
-                    state = State::BinaryOperator(BinaryOperatorType::Equals)
+                    state = State::BinaryOperator(BinaryOperatorType::Equals);
                 }
                 State::BinaryOperator(BinaryOperatorType::Equals) => {
                     state =
-                        State::BinaryOperator(BinaryOperatorType::DoubleEquals)
+                        State::BinaryOperator(BinaryOperatorType::DoubleEquals);
                 }
                 _ => panic!("This is an invalid operator"),
             },
-            ' ' | '\n' | '\r' | '\t' | ';' => {
+            ' ' | '\n' | '\r' | '\t' | ';' | '(' | ')' => {
                 match state {
                     State::None => {}
                     State::Number(number) => tokens.push(Token::new(
@@ -70,9 +72,14 @@ fn tokenize(text: &str) -> Vec<Token> {
                     State::BinaryOperator(operator_type) => tokens.push(
                         Token::new(TokenType::BinaryOperator(operator_type)),
                     ),
-                    // _ => todo!(),
                 }
-                state = State::None
+                state = State::None;
+
+                match char {
+                    '(' => tokens.push(Token::new(TokenType::OpenParen)),
+                    ')' => tokens.push(Token::new(TokenType::ClosedParen)),
+                    _ => {}
+                };
             }
             _ => panic!("Invalid character!"),
         }
@@ -86,6 +93,8 @@ enum TreeNodeType {
     Block(Vec<TreeNode>),
     Number(f32),
     LetDeclaration(String, Box<TreeNode>),
+    FunctionCall(String, Vec<TreeNode>),
+    Paren(Vec<TreeNode>),
 }
 
 #[derive(Debug)]
@@ -99,16 +108,45 @@ impl TreeNode {
     }
 }
 
-fn parse(tokens: Vec<Token>) -> TreeNode {
+fn parse_literal(token: &Token) -> Option<TreeNode> {
+    match token.token_type {
+        TokenType::Number(number) => {
+            Some(TreeNode::new(TreeNodeType::Number(number)))
+        }
+        _ => None,
+    }
+}
+
+fn parse_parenthesis(tokens: &[Token]) -> (Vec<TreeNode>, usize) {
+    let mut children = vec![];
+
+    for (i, token) in tokens.iter().enumerate() {
+        match token.token_type {
+            TokenType::ClosedParen => return (children, i),
+            _ => {
+                children.push(
+                    parse_literal(token).expect("This is not allowed here"),
+                );
+            }
+        }
+    }
+
+    panic!("Unfinished parenthesis");
+}
+
+fn parse(tokens: &[Token]) -> TreeNode {
     enum State {
         None,
         LetDeclaration(Option<String>, bool),
+        Identifier(String), //Intermediary state, could be a function
     }
 
     let mut state = State::None;
     let mut children = vec![];
 
-    for token in tokens {
+    let mut iter = tokens.iter().enumerate();
+
+    while let Some((i, token)) = iter.next() {
         match &token.token_type {
             TokenType::Identifier(identifier) => match identifier.as_str() {
                 "let" => match state {
@@ -124,6 +162,9 @@ fn parse(tokens: Vec<Token>) -> TreeNode {
                     }
                     State::LetDeclaration(Some(variable), true) => {
                         state = State::LetDeclaration(Some(variable), true)
+                    }
+                    State::None => {
+                        state = State::Identifier(identifier.clone())
                     }
                     _ => todo!(),
                 },
@@ -150,6 +191,24 @@ fn parse(tokens: Vec<Token>) -> TreeNode {
                 }
                 _ => panic!("Missing = operator on variable declaraion"),
             },
+            TokenType::OpenParen => match state {
+                State::Identifier(func_name) => {
+                    let start_at = i + 1;
+
+                    let (args, end) = parse_parenthesis(&tokens[start_at..]);
+
+                    children.push(TreeNode::new(TreeNodeType::FunctionCall(
+                        func_name, args,
+                    )));
+                    state = State::None;
+
+                    iter.nth(end);
+                }
+                _ => panic!(),
+            },
+            TokenType::ClosedParen => {
+                return TreeNode::new(TreeNodeType::Paren(children));
+            }
         }
     }
 
@@ -162,6 +221,6 @@ fn parse(tokens: Vec<Token>) -> TreeNode {
 
 pub fn run_code_string(text: &str) {
     let tokens = tokenize(text);
-    let ast = parse(tokens);
+    let ast = parse(&tokens);
     dbg!(ast);
 }
