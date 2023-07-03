@@ -98,7 +98,7 @@ enum TreeNodeType {
 }
 
 #[derive(Debug)]
-struct TreeNode {
+pub struct TreeNode {
     node_type: TreeNodeType,
 }
 
@@ -219,8 +219,54 @@ fn parse(tokens: &[Token]) -> TreeNode {
     return TreeNode::new(TreeNodeType::Block(children));
 }
 
-pub fn run_code_string(text: &str) {
+fn ast_to_js(tree_node: &TreeNode) -> String {
+    let mut js = String::new();
+
+    match &tree_node.node_type {
+        TreeNodeType::Block(children) => {
+            let children_str = children
+                .iter()
+                .map(|child| ast_to_js(child))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            js.push_str(children_str.as_str());
+        }
+        TreeNodeType::FunctionCall(func_name, args) => {
+            js.push_str(match func_name.as_str() {
+                "print" => "console.log",
+                _ => &func_name,
+            });
+
+            js.push('(');
+
+            let args_str = args
+                .iter()
+                .map(|arg| ast_to_js(arg))
+                .collect::<Vec<_>>()
+                .join(",");
+
+            js.push_str(args_str.as_str());
+
+            js.push(')');
+        }
+        TreeNodeType::LetDeclaration(variable, value) => {
+            js.push_str("let ");
+            js.push_str(variable);
+            js.push_str(" = ");
+            js.push_str(&ast_to_js(value));
+        }
+        TreeNodeType::Number(number) => js.push_str(&number.to_string()),
+        _ => todo!(),
+    }
+
+    return js;
+}
+
+pub fn code_string_to_js(text: &str) -> String {
     let tokens = tokenize(text);
     let ast = parse(&tokens);
-    dbg!(ast);
+    let js = ast_to_js(&ast);
+
+    return js;
 }
