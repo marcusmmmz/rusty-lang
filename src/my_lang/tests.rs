@@ -10,3 +10,11 @@ fn let_declaration() {
 fn function_call() {
     assert_eq!("console.log(1)", code_string_to_js("print(1);"));
 }
+
+#[test]
+fn conditional() {
+    assert_eq!(
+        "if (true) {let x = 10}",
+        code_string_to_js("if true { let x = 10 }")
+    );
+}

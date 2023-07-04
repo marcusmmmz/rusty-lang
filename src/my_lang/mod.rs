@@ -13,6 +13,8 @@ enum TokenType {
     BinaryOperator(BinaryOperatorType),
     OpenParen,
     ClosedParen,
+    OpenBracket,
+    ClosedBracket,
 }
 
 #[derive(Debug)]
@@ -81,6 +83,8 @@ fn tokenize(text: &str) -> Vec<Token> {
                     _ => {}
                 };
             }
+            '{' => tokens.push(Token::new(TokenType::OpenBracket)),
+            '}' => tokens.push(Token::new(TokenType::ClosedBracket)),
             _ => panic!("Invalid character!"),
         }
     }
@@ -90,11 +94,12 @@ fn tokenize(text: &str) -> Vec<Token> {
 
 #[derive(Debug)]
 enum TreeNodeType {
-    Block(Vec<TreeNode>),
+    Brackets(Vec<TreeNode>),
     Number(f32),
+    Identifier(String),
     LetDeclaration(String, Box<TreeNode>),
+    IfStatement(Box<TreeNode>, Box<TreeNode>),
     FunctionCall(String, Vec<TreeNode>),
-    Paren(Vec<TreeNode>),
 }
 
 #[derive(Debug)]
@@ -134,10 +139,11 @@ fn parse_parenthesis(tokens: &[Token]) -> (Vec<TreeNode>, usize) {
     panic!("Unfinished parenthesis");
 }
 
-fn parse(tokens: &[Token]) -> TreeNode {
+fn parse_brackets(tokens: &[Token]) -> (TreeNode, usize) {
     enum State {
         None,
         LetDeclaration(Option<String>, bool),
+        IfStatement(Option<TreeNode>, Option<TreeNode>),
         Identifier(String), //Intermediary state, could be a function
     }
 
@@ -153,6 +159,12 @@ fn parse(tokens: &[Token]) -> TreeNode {
                     State::None => state = State::LetDeclaration(None, false),
                     _ => panic!("'let' is invalid here"),
                 },
+                "if" => match state {
+                    State::None => {
+                        state = State::IfStatement(None, None);
+                    }
+                    _ => panic!(),
+                },
                 _ => match state {
                     State::LetDeclaration(None, false) => {
                         state = State::LetDeclaration(
@@ -162,6 +174,14 @@ fn parse(tokens: &[Token]) -> TreeNode {
                     }
                     State::LetDeclaration(Some(variable), true) => {
                         state = State::LetDeclaration(Some(variable), true)
+                    }
+                    State::IfStatement(None, None) => {
+                        state = State::IfStatement(
+                            Some(TreeNode::new(TreeNodeType::Identifier(
+                                identifier.clone(),
+                            ))),
+                            None,
+                        )
                     }
                     State::None => {
                         state = State::Identifier(identifier.clone())
@@ -206,8 +226,26 @@ fn parse(tokens: &[Token]) -> TreeNode {
                 }
                 _ => panic!(),
             },
-            TokenType::ClosedParen => {
-                return TreeNode::new(TreeNodeType::Paren(children));
+            TokenType::ClosedParen => panic!("Unmatched parenthesis"),
+            TokenType::OpenBracket => match state {
+                State::IfStatement(Some(a), None) => {
+                    let start_at = i + 1;
+
+                    let (brackets_children, end) =
+                        parse_brackets(&tokens[start_at..]);
+
+                    children.push(TreeNode::new(TreeNodeType::IfStatement(
+                        Box::new(a),
+                        Box::new(brackets_children),
+                    )));
+                    state = State::None;
+
+                    iter.nth(end);
+                }
+                _ => panic!(),
+            },
+            TokenType::ClosedBracket => {
+                return (TreeNode::new(TreeNodeType::Brackets(children)), i);
             }
         }
     }
@@ -216,14 +254,22 @@ fn parse(tokens: &[Token]) -> TreeNode {
         panic!("The last expression is incomplete")
     }
 
-    return TreeNode::new(TreeNodeType::Block(children));
+    return (
+        TreeNode::new(TreeNodeType::Brackets(children)),
+        tokens.len(),
+    );
+}
+
+fn parse(tokens: &[Token]) -> TreeNode {
+    return parse_brackets(tokens).0;
 }
 
 fn ast_to_js(tree_node: &TreeNode) -> String {
     let mut js = String::new();
 
     match &tree_node.node_type {
-        TreeNodeType::Block(children) => {
+        TreeNodeType::Brackets(children) => {
+            js.push('{');
             let children_str = children
                 .iter()
                 .map(|child| ast_to_js(child))
@@ -231,6 +277,7 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
                 .join("\n");
 
             js.push_str(children_str.as_str());
+            js.push('}');
         }
         TreeNodeType::FunctionCall(func_name, args) => {
             js.push_str(match func_name.as_str() {
@@ -250,6 +297,12 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 
             js.push(')');
         }
+        TreeNodeType::IfStatement(condition, brackets) => {
+            js.push_str("if (");
+            js.push_str(&ast_to_js(&condition));
+            js.push_str(") ");
+            js.push_str(&ast_to_js(&brackets));
+        }
         TreeNodeType::LetDeclaration(variable, value) => {
             js.push_str("let ");
             js.push_str(variable);
@@ -257,7 +310,9 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
             js.push_str(&ast_to_js(value));
         }
         TreeNodeType::Number(number) => js.push_str(&number.to_string()),
-        _ => todo!(),
+        TreeNodeType::Identifier(identifier) => {
+            js.push_str(identifier.as_str())
+        }
     }
 
     return js;
@@ -268,5 +323,5 @@ pub fn code_string_to_js(text: &str) -> String {
     let ast = parse(&tokens);
     let js = ast_to_js(&ast);
 
-    return js;
+    return String::from(&js[1..(js.len() - 1)]);
 }
