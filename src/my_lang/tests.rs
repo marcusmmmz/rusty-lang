@@ -18,3 +18,11 @@ fn conditional() {
         code_string_to_js("if true { let x = 10 }")
     );
 }
+
+#[test]
+fn while_loop() {
+    assert_eq!(
+        "while (true) {let x = 10}",
+        code_string_to_js("while true { let x = 10 }")
+    );
+}

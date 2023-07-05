@@ -99,6 +99,7 @@ enum TreeNodeType {
     Identifier(String),
     LetDeclaration(String, Box<TreeNode>),
     IfStatement(Box<TreeNode>, Box<TreeNode>),
+    WhileStatement(Box<TreeNode>, Box<TreeNode>),
     FunctionCall(String, Vec<TreeNode>),
 }
 
@@ -144,6 +145,7 @@ fn parse_brackets(tokens: &[Token]) -> (TreeNode, usize) {
         None,
         LetDeclaration(Option<String>, bool),
         IfStatement(Option<TreeNode>, Option<TreeNode>),
+        WhileStatement(Option<TreeNode>, Option<TreeNode>),
         Identifier(String), //Intermediary state, could be a function
     }
 
@@ -165,6 +167,12 @@ fn parse_brackets(tokens: &[Token]) -> (TreeNode, usize) {
                     }
                     _ => panic!(),
                 },
+                "while" => match state {
+                    State::None => {
+                        state = State::WhileStatement(None, None);
+                    }
+                    _ => panic!(),
+                },
                 _ => match state {
                     State::LetDeclaration(None, false) => {
                         state = State::LetDeclaration(
@@ -183,10 +191,18 @@ fn parse_brackets(tokens: &[Token]) -> (TreeNode, usize) {
                             None,
                         )
                     }
+                    State::WhileStatement(None, None) => {
+                        state = State::WhileStatement(
+                            Some(TreeNode::new(TreeNodeType::Identifier(
+                                identifier.clone(),
+                            ))),
+                            None,
+                        )
+                    }
                     State::None => {
                         state = State::Identifier(identifier.clone())
                     }
-                    _ => todo!(),
+                    _ => panic!(),
                 },
             },
             TokenType::BinaryOperator(binary_operator) => match binary_operator
@@ -227,23 +243,32 @@ fn parse_brackets(tokens: &[Token]) -> (TreeNode, usize) {
                 _ => panic!(),
             },
             TokenType::ClosedParen => panic!("Unmatched parenthesis"),
-            TokenType::OpenBracket => match state {
-                State::IfStatement(Some(a), None) => {
-                    let start_at = i + 1;
+            TokenType::OpenBracket => {
+                let start_at = i + 1;
 
-                    let (brackets_children, end) =
-                        parse_brackets(&tokens[start_at..]);
+                let (brackets_children, end) =
+                    parse_brackets(&tokens[start_at..]);
 
-                    children.push(TreeNode::new(TreeNodeType::IfStatement(
-                        Box::new(a),
-                        Box::new(brackets_children),
-                    )));
-                    state = State::None;
+                children.push(match state {
+                    State::IfStatement(Some(condition), None) => {
+                        TreeNode::new(TreeNodeType::IfStatement(
+                            Box::new(condition),
+                            Box::new(brackets_children),
+                        ))
+                    }
+                    State::WhileStatement(Some(condition), None) => {
+                        TreeNode::new(TreeNodeType::WhileStatement(
+                            Box::new(condition),
+                            Box::new(brackets_children),
+                        ))
+                    }
+                    _ => panic!(),
+                });
 
-                    iter.nth(end);
-                }
-                _ => panic!(),
-            },
+                state = State::None;
+
+                iter.nth(end);
+            }
             TokenType::ClosedBracket => {
                 return (TreeNode::new(TreeNodeType::Brackets(children)), i);
             }
@@ -299,6 +324,12 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
         }
         TreeNodeType::IfStatement(condition, brackets) => {
             js.push_str("if (");
+            js.push_str(&ast_to_js(&condition));
+            js.push_str(") ");
+            js.push_str(&ast_to_js(&brackets));
+        }
+        TreeNodeType::WhileStatement(condition, brackets) => {
+            js.push_str("while (");
             js.push_str(&ast_to_js(&condition));
             js.push_str(") ");
             js.push_str(&ast_to_js(&brackets));
