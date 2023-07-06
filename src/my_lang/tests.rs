@@ -7,6 +7,11 @@ fn let_declaration() {
 }
 
 #[test]
+fn assignment() {
+    assert_eq!("a = 10", code_string_to_js("a = 10;"));
+}
+
+#[test]
 fn function_call() {
     assert_eq!("console.log(1)", code_string_to_js("print(1);"));
 }
