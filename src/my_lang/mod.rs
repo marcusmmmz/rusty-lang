@@ -1,12 +1,12 @@
 mod tests;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum BinaryOperatorType {
     Equals,
     DoubleEquals,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum TokenType {
     Number(f32),
     Identifier(String),
@@ -17,7 +17,7 @@ enum TokenType {
     ClosedBracket,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Token {
     token_type: TokenType,
 }
@@ -97,7 +97,7 @@ enum TreeNodeType {
     Brackets(Vec<TreeNode>),
     Number(f32),
     Identifier(String),
-    LetDeclaration(String, Box<TreeNode>),
+    LetStatement(String, Box<TreeNode>),
     IfStatement(Box<TreeNode>, Box<TreeNode>),
     WhileStatement(Box<TreeNode>, Box<TreeNode>),
     FunctionCall(String, Vec<TreeNode>),
@@ -114,12 +114,16 @@ impl TreeNode {
     }
 }
 
-fn parse_literal(token: &Token) -> Option<TreeNode> {
-    match token.token_type {
+fn parse_expression(tokens: &[Token]) -> (TreeNode, usize) {
+    match &tokens[0].token_type {
         TokenType::Number(number) => {
-            Some(TreeNode::new(TreeNodeType::Number(number)))
+            ((TreeNode::new(TreeNodeType::Number(*number))), 1)
         }
-        _ => None,
+        TokenType::Identifier(identifier) => (
+            (TreeNode::new(TreeNodeType::Identifier(identifier.clone()))),
+            1,
+        ),
+        _ => panic!("This should be an expression"),
     }
 }
 
@@ -130,9 +134,7 @@ fn parse_parenthesis(tokens: &[Token]) -> (Vec<TreeNode>, usize) {
         match token.token_type {
             TokenType::ClosedParen => return (children, i),
             _ => {
-                children.push(
-                    parse_literal(token).expect("This is not allowed here"),
-                );
+                children.push(parse_expression(&[token.clone()]).0);
             }
         }
     }
@@ -140,138 +142,113 @@ fn parse_parenthesis(tokens: &[Token]) -> (Vec<TreeNode>, usize) {
     panic!("Unfinished parenthesis");
 }
 
+fn parse_let_statement(tokens: &[Token]) -> (TreeNode, usize) {
+    let identifier = match &tokens[0].token_type {
+        TokenType::Identifier(identifier) => identifier,
+        _ => panic!(),
+    };
+
+    match tokens[1].token_type {
+        TokenType::BinaryOperator(BinaryOperatorType::Equals) => {}
+        _ => panic!(),
+    };
+
+    let (expression, expression_end) = parse_expression(&tokens[2..]);
+
+    return (
+        TreeNode::new(TreeNodeType::LetStatement(
+            identifier.clone(),
+            Box::new(expression),
+        )),
+        2 + expression_end,
+    );
+}
+
+fn parse_if_statement(tokens: &[Token]) -> (TreeNode, usize) {
+    let (conditional, conditional_end) = parse_expression(tokens);
+    let (brackets, brackets_end) =
+        parse_brackets(&tokens[conditional_end + 1..]);
+
+    return (
+        TreeNode::new(TreeNodeType::IfStatement(
+            Box::new(conditional),
+            Box::new(brackets),
+        )),
+        conditional_end + brackets_end,
+    );
+}
+
+fn parse_while_statement(tokens: &[Token]) -> (TreeNode, usize) {
+    let (conditional, conditional_end) = parse_expression(tokens);
+    let (brackets, brackets_end) =
+        parse_brackets(&tokens[conditional_end + 1..]);
+
+    return (
+        TreeNode::new(TreeNodeType::WhileStatement(
+            Box::new(conditional),
+            Box::new(brackets),
+        )),
+        conditional_end + brackets_end,
+    );
+}
+
+fn parse_function_call(tokens: &[Token]) -> (TreeNode, usize) {
+    let func_name = match &tokens[0].token_type {
+        TokenType::Identifier(identifier) => identifier.clone(),
+        _ => panic!(),
+    };
+    let (args, end) = parse_parenthesis(&tokens[1..]);
+
+    return (
+        TreeNode::new(TreeNodeType::FunctionCall(func_name, args)),
+        end,
+    );
+}
+
 fn parse_brackets(tokens: &[Token]) -> (TreeNode, usize) {
     enum State {
         None,
-        LetDeclaration(Option<String>, bool),
-        IfStatement(Option<TreeNode>, Option<TreeNode>),
-        WhileStatement(Option<TreeNode>, Option<TreeNode>),
-        Identifier(String), //Intermediary state, could be a function
+        Identifier(String), //Intermediary state, could be a function or assignment
     }
 
     let mut state = State::None;
     let mut children = vec![];
-
     let mut iter = tokens.iter().enumerate();
 
     while let Some((i, token)) = iter.next() {
+        macro_rules! parse_and_skip {
+            ($parse_func: ident, $tokens_to_skip: expr) => {{
+                let (tree_node, end) =
+                    $parse_func(&tokens[i + $tokens_to_skip..]);
+
+                children.push(tree_node);
+
+                iter.nth(end);
+            }};
+        }
+
         match &token.token_type {
             TokenType::Identifier(identifier) => match identifier.as_str() {
-                "let" => match state {
-                    State::None => state = State::LetDeclaration(None, false),
-                    _ => panic!("'let' is invalid here"),
-                },
-                "if" => match state {
-                    State::None => {
-                        state = State::IfStatement(None, None);
-                    }
-                    _ => panic!(),
-                },
-                "while" => match state {
-                    State::None => {
-                        state = State::WhileStatement(None, None);
-                    }
-                    _ => panic!(),
-                },
+                "let" => parse_and_skip!(parse_let_statement, 1),
+                "if" => parse_and_skip!(parse_if_statement, 1),
+                "while" => parse_and_skip!(parse_while_statement, 1),
                 _ => match state {
-                    State::LetDeclaration(None, false) => {
-                        state = State::LetDeclaration(
-                            Some(identifier.clone()),
-                            false,
-                        )
-                    }
-                    State::LetDeclaration(Some(variable), true) => {
-                        state = State::LetDeclaration(Some(variable), true)
-                    }
-                    State::IfStatement(None, None) => {
-                        state = State::IfStatement(
-                            Some(TreeNode::new(TreeNodeType::Identifier(
-                                identifier.clone(),
-                            ))),
-                            None,
-                        )
-                    }
-                    State::WhileStatement(None, None) => {
-                        state = State::WhileStatement(
-                            Some(TreeNode::new(TreeNodeType::Identifier(
-                                identifier.clone(),
-                            ))),
-                            None,
-                        )
-                    }
                     State::None => {
                         state = State::Identifier(identifier.clone())
                     }
                     _ => panic!(),
                 },
             },
-            TokenType::BinaryOperator(binary_operator) => match binary_operator
-            {
-                BinaryOperatorType::Equals => match state {
-                    State::LetDeclaration(Some(variable), false) => {
-                        state = State::LetDeclaration(Some(variable), true)
-                    }
-                    _ => panic!("Missing variable name on variable declaraion"),
-                },
-                _ => todo!(),
-            },
-            TokenType::Number(number) => match state {
-                State::LetDeclaration(Some(variable), true) => {
-                    children.push(TreeNode::new(TreeNodeType::LetDeclaration(
-                        variable,
-                        Box::new(TreeNode::new(TreeNodeType::Number(
-                            number.clone(),
-                        ))),
-                    )));
-                    state = State::None;
-                }
-                _ => panic!("Missing = operator on variable declaraion"),
-            },
             TokenType::OpenParen => match state {
-                State::Identifier(func_name) => {
-                    let start_at = i + 1;
-
-                    let (args, end) = parse_parenthesis(&tokens[start_at..]);
-
-                    children.push(TreeNode::new(TreeNodeType::FunctionCall(
-                        func_name, args,
-                    )));
-                    state = State::None;
-
-                    iter.nth(end);
-                }
+                State::Identifier(_) => parse_and_skip!(parse_function_call, 0),
                 _ => panic!(),
             },
             TokenType::ClosedParen => panic!("Unmatched parenthesis"),
-            TokenType::OpenBracket => {
-                let start_at = i + 1;
-
-                let (brackets_children, end) =
-                    parse_brackets(&tokens[start_at..]);
-
-                children.push(match state {
-                    State::IfStatement(Some(condition), None) => {
-                        TreeNode::new(TreeNodeType::IfStatement(
-                            Box::new(condition),
-                            Box::new(brackets_children),
-                        ))
-                    }
-                    State::WhileStatement(Some(condition), None) => {
-                        TreeNode::new(TreeNodeType::WhileStatement(
-                            Box::new(condition),
-                            Box::new(brackets_children),
-                        ))
-                    }
-                    _ => panic!(),
-                });
-
-                state = State::None;
-
-                iter.nth(end);
-            }
+            TokenType::OpenBracket => parse_and_skip!(parse_brackets, 1),
             TokenType::ClosedBracket => {
                 return (TreeNode::new(TreeNodeType::Brackets(children)), i);
             }
+            TokenType::BinaryOperator(_) | TokenType::Number(_) => panic!(),
         }
     }
 
@@ -334,7 +311,7 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
             js.push_str(") ");
             js.push_str(&ast_to_js(&brackets));
         }
-        TreeNodeType::LetDeclaration(variable, value) => {
+        TreeNodeType::LetStatement(variable, value) => {
             js.push_str("let ");
             js.push_str(variable);
             js.push_str(" = ");
