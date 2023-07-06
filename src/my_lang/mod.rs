@@ -102,6 +102,7 @@ enum TreeNodeType {
     IfStatement(Box<TreeNode>, Box<TreeNode>),
     WhileStatement(Box<TreeNode>, Box<TreeNode>),
     FunctionCall(String, Vec<TreeNode>),
+    FunctionDeclaration(String, Vec<TreeNode>, Box<TreeNode>),
 }
 
 #[derive(Debug)]
@@ -230,6 +231,26 @@ fn parse_function_call(tokens: &[Token]) -> (TreeNode, usize) {
     );
 }
 
+fn parse_function_declaration(tokens: &[Token]) -> (TreeNode, usize) {
+    let func_name = match &tokens[0].token_type {
+        TokenType::Identifier(identifier) => identifier.clone(),
+        _ => panic!(),
+    };
+
+    let (args, args_end) = parse_parenthesis(&tokens[2..]);
+
+    let (code, code_end) = parse_brackets(&tokens[4 + args_end..]);
+
+    return (
+        TreeNode::new(TreeNodeType::FunctionDeclaration(
+            func_name,
+            args,
+            Box::new(code),
+        )),
+        1 + 2 + args_end + 2 + code_end,
+    );
+}
+
 fn parse_unknown_identifier(tokens: &[Token]) -> (TreeNode, usize) {
     return match &tokens[1].token_type {
         TokenType::BinaryOperator(BinaryOperatorType::Equals) => {
@@ -261,6 +282,7 @@ fn parse_brackets(tokens: &[Token]) -> (TreeNode, usize) {
                 "let" => parse_and_skip!(parse_let_statement, 1),
                 "if" => parse_and_skip!(parse_if_statement, 1),
                 "while" => parse_and_skip!(parse_while_statement, 1),
+                "fn" => parse_and_skip!(parse_function_declaration, 1),
                 _ => parse_and_skip!(parse_unknown_identifier, 0),
             },
             TokenType::ClosedParen => panic!("Unmatched parenthesis"),
@@ -316,6 +338,25 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
             js.push_str(args_str.as_str());
 
             js.push(')');
+        }
+        TreeNodeType::FunctionDeclaration(func_name, args, code) => {
+            js.push_str("function ");
+
+            js.push_str(&func_name);
+
+            js.push('(');
+
+            let args_str = args
+                .iter()
+                .map(|arg| ast_to_js(arg))
+                .collect::<Vec<_>>()
+                .join(",");
+
+            js.push_str(args_str.as_str());
+
+            js.push_str(") ");
+
+            js.push_str(&ast_to_js(code));
         }
         TreeNodeType::IfStatement(condition, brackets) => {
             js.push_str("if (");

@@ -17,6 +17,11 @@ fn function_call() {
 }
 
 #[test]
+fn function_declaration() {
+    assert_eq!("function f() {}", code_string_to_js("fn f() {}"));
+}
+
+#[test]
 fn conditional() {
     assert_eq!(
         "if (true) {let x = 10}",
