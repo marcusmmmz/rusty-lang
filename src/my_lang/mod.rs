@@ -1,3 +1,5 @@
+use std::{iter::Peekable, slice::Iter};
+
 mod tests;
 
 #[derive(Clone, Debug)]
@@ -116,179 +118,185 @@ impl TreeNode {
     }
 }
 
-fn parse_expression(tokens: &[Token]) -> (TreeNode, usize) {
-    match &tokens[0].token_type {
+fn parse_expression<'a>(iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
+    match &iter.next().unwrap().token_type {
         TokenType::Number(number) => {
-            ((TreeNode::new(TreeNodeType::Number(*number))), 1)
+            TreeNode::new(TreeNodeType::Number(*number))
         }
-        TokenType::Identifier(identifier) => (
-            (TreeNode::new(TreeNodeType::Identifier(identifier.clone()))),
-            1,
-        ),
+        TokenType::Identifier(identifier) => {
+            TreeNode::new(TreeNodeType::Identifier(identifier.clone()))
+        }
         _ => {
             panic!("This should be an expression")
         }
     }
 }
 
-fn parse_parenthesis(tokens: &[Token]) -> (Vec<TreeNode>, usize) {
+fn parse_parenthesis<'a>(
+    iter: &mut Peekable<Iter<'a, Token>>,
+) -> Vec<TreeNode> {
     let mut children = vec![];
 
-    for (i, token) in tokens.iter().enumerate() {
+    match iter.next().unwrap().token_type {
+        TokenType::OpenParen => {}
+        _ => panic!(),
+    };
+
+    loop {
+        let token = iter.peek().expect("Unfinished parenthesis");
+
         match token.token_type {
-            TokenType::ClosedParen => return (children, i),
-            _ => {
-                children.push(parse_expression(&[token.clone()]).0);
+            TokenType::ClosedParen => {
+                iter.next();
+                return children;
             }
+            _ => {
+                children.push(parse_expression(iter));
+            }
+        };
+    }
+}
+
+fn parse_let_statement<'a>(
+    mut iter: &mut Peekable<Iter<'a, Token>>,
+) -> TreeNode {
+    let identifier = match &iter.next().unwrap().token_type {
+        TokenType::Identifier(identifier) => identifier,
+        _ => panic!(),
+    };
+
+    match iter.next().unwrap().token_type {
+        TokenType::BinaryOperator(BinaryOperatorType::Equals) => {}
+        _ => panic!(),
+    };
+
+    let expression = parse_expression(&mut iter);
+
+    return TreeNode::new(TreeNodeType::LetStatement(
+        identifier.clone(),
+        Box::new(expression),
+    ));
+}
+
+fn parse_assignment<'a>(
+    identifier: String,
+    mut iter: &mut Peekable<Iter<'a, Token>>,
+) -> TreeNode {
+    match iter.next().unwrap().token_type {
+        TokenType::BinaryOperator(BinaryOperatorType::Equals) => {}
+        _ => panic!(),
+    };
+
+    let expression = parse_expression(&mut iter);
+
+    return TreeNode::new(TreeNodeType::Assignment(
+        identifier.clone(),
+        Box::new(expression),
+    ));
+}
+
+fn parse_if_statement<'a>(
+    mut iter: &mut Peekable<Iter<'a, Token>>,
+) -> TreeNode {
+    let conditional = parse_expression(&mut iter);
+    let brackets = parse_brackets(&mut iter);
+
+    return TreeNode::new(TreeNodeType::IfStatement(
+        Box::new(conditional),
+        Box::new(brackets),
+    ));
+}
+
+fn parse_while_statement<'a>(
+    mut iter: &mut Peekable<Iter<'a, Token>>,
+) -> TreeNode {
+    let conditional = parse_expression(&mut iter);
+    let brackets = parse_brackets(&mut iter);
+
+    return TreeNode::new(TreeNodeType::WhileStatement(
+        Box::new(conditional),
+        Box::new(brackets),
+    ));
+}
+
+fn parse_function_call<'a>(
+    func_name: String,
+    mut iter: &mut Peekable<Iter<'a, Token>>,
+) -> TreeNode {
+    let args = parse_parenthesis(&mut iter);
+
+    return TreeNode::new(TreeNodeType::FunctionCall(func_name, args));
+}
+
+fn parse_function_declaration<'a>(
+    mut iter: &mut Peekable<Iter<'a, Token>>,
+) -> TreeNode {
+    let func_name = match &iter.next().unwrap().token_type {
+        TokenType::Identifier(identifier) => identifier.clone(),
+        _ => panic!(),
+    };
+
+    let args = parse_parenthesis(&mut iter);
+
+    let code = parse_brackets(&mut iter);
+
+    return TreeNode::new(TreeNodeType::FunctionDeclaration(
+        func_name,
+        args,
+        Box::new(code),
+    ));
+}
+
+fn parse_unknown_identifier<'a>(
+    identifier: String,
+    mut iter: &mut Peekable<Iter<'a, Token>>,
+) -> TreeNode {
+    return match &iter.peek().unwrap().token_type {
+        TokenType::BinaryOperator(BinaryOperatorType::Equals) => {
+            parse_assignment(identifier, &mut iter)
         }
+        TokenType::OpenParen => parse_function_call(identifier, &mut iter),
+        _ => panic!(),
+    };
+}
+
+fn parse_brackets<'a>(mut iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
+    match iter.next().unwrap().token_type {
+        TokenType::OpenBracket => {}
+        _ => panic!(),
     }
 
-    panic!("Unfinished parenthesis");
-}
-
-fn parse_let_statement(tokens: &[Token]) -> (TreeNode, usize) {
-    let identifier = match &tokens[0].token_type {
-        TokenType::Identifier(identifier) => identifier,
-        _ => panic!(),
-    };
-
-    match tokens[1].token_type {
-        TokenType::BinaryOperator(BinaryOperatorType::Equals) => {}
-        _ => panic!(),
-    };
-
-    let (expression, expression_end) = parse_expression(&tokens[2..]);
-
-    return (
-        TreeNode::new(TreeNodeType::LetStatement(
-            identifier.clone(),
-            Box::new(expression),
-        )),
-        2 + expression_end,
-    );
-}
-
-fn parse_assignment(tokens: &[Token]) -> (TreeNode, usize) {
-    let identifier = match &tokens[0].token_type {
-        TokenType::Identifier(identifier) => identifier,
-        _ => panic!(),
-    };
-
-    match tokens[1].token_type {
-        TokenType::BinaryOperator(BinaryOperatorType::Equals) => {}
-        _ => panic!(),
-    };
-
-    let (expression, expression_end) = parse_expression(&tokens[2..]);
-
-    return (
-        TreeNode::new(TreeNodeType::Assignment(
-            identifier.clone(),
-            Box::new(expression),
-        )),
-        2 + expression_end,
-    );
-}
-
-fn parse_if_statement(tokens: &[Token]) -> (TreeNode, usize) {
-    let (conditional, conditional_end) = parse_expression(tokens);
-    let (brackets, brackets_end) =
-        parse_brackets(&tokens[conditional_end + 1..]);
-
-    return (
-        TreeNode::new(TreeNodeType::IfStatement(
-            Box::new(conditional),
-            Box::new(brackets),
-        )),
-        conditional_end + brackets_end,
-    );
-}
-
-fn parse_while_statement(tokens: &[Token]) -> (TreeNode, usize) {
-    let (conditional, conditional_end) = parse_expression(tokens);
-    let (brackets, brackets_end) =
-        parse_brackets(&tokens[conditional_end + 1..]);
-
-    return (
-        TreeNode::new(TreeNodeType::WhileStatement(
-            Box::new(conditional),
-            Box::new(brackets),
-        )),
-        conditional_end + brackets_end,
-    );
-}
-
-fn parse_function_call(tokens: &[Token]) -> (TreeNode, usize) {
-    let func_name = match &tokens[0].token_type {
-        TokenType::Identifier(identifier) => identifier.clone(),
-        _ => panic!(),
-    };
-    let (args, paren_end) = parse_parenthesis(&tokens[2..]);
-
-    return (
-        TreeNode::new(TreeNodeType::FunctionCall(func_name, args)),
-        1 + paren_end,
-    );
-}
-
-fn parse_function_declaration(tokens: &[Token]) -> (TreeNode, usize) {
-    let func_name = match &tokens[0].token_type {
-        TokenType::Identifier(identifier) => identifier.clone(),
-        _ => panic!(),
-    };
-
-    let (args, args_end) = parse_parenthesis(&tokens[2..]);
-
-    let (code, code_end) = parse_brackets(&tokens[4 + args_end..]);
-
-    return (
-        TreeNode::new(TreeNodeType::FunctionDeclaration(
-            func_name,
-            args,
-            Box::new(code),
-        )),
-        1 + 2 + args_end + 2 + code_end,
-    );
-}
-
-fn parse_unknown_identifier(tokens: &[Token]) -> (TreeNode, usize) {
-    return match &tokens[1].token_type {
-        TokenType::BinaryOperator(BinaryOperatorType::Equals) => {
-            parse_assignment(tokens)
-        }
-        TokenType::OpenParen => parse_function_call(tokens),
-        _ => panic!(),
-    };
-}
-
-fn parse_brackets(tokens: &[Token]) -> (TreeNode, usize) {
     let mut children = vec![];
-    let mut iter = tokens.iter().enumerate();
 
-    while let Some((i, token)) = iter.next() {
+    while let Some(token) = iter.next() {
         macro_rules! parse_and_skip {
-            ($parse_func: ident, $tokens_to_skip: expr) => {{
-                let (tree_node, end) =
-                    $parse_func(&tokens[i + $tokens_to_skip..]);
+            ($parse_func: ident) => {{
+                let tree_node = $parse_func(&mut iter);
 
                 children.push(tree_node);
+            }};
+            ($parse_func: ident, $arg: expr) => {{
+                let tree_node = $parse_func($arg, &mut iter);
 
-                iter.nth(end);
+                children.push(tree_node);
             }};
         }
 
         match &token.token_type {
             TokenType::Identifier(identifier) => match identifier.as_str() {
-                "let" => parse_and_skip!(parse_let_statement, 1),
-                "if" => parse_and_skip!(parse_if_statement, 1),
-                "while" => parse_and_skip!(parse_while_statement, 1),
-                "fn" => parse_and_skip!(parse_function_declaration, 1),
-                _ => parse_and_skip!(parse_unknown_identifier, 0),
+                "let" => parse_and_skip!(parse_let_statement),
+                "if" => parse_and_skip!(parse_if_statement),
+                "while" => parse_and_skip!(parse_while_statement),
+                "fn" => parse_and_skip!(parse_function_declaration),
+                _ => parse_and_skip!(
+                    parse_unknown_identifier,
+                    identifier.clone()
+                ),
             },
             TokenType::ClosedParen => panic!("Unmatched parenthesis"),
-            TokenType::OpenBracket => parse_and_skip!(parse_brackets, 1),
+            TokenType::OpenBracket => parse_and_skip!(parse_brackets),
             TokenType::ClosedBracket => {
-                return (TreeNode::new(TreeNodeType::Brackets(children)), i);
+                return TreeNode::new(TreeNodeType::Brackets(children));
             }
             TokenType::BinaryOperator(_)
             | TokenType::Number(_)
@@ -296,14 +304,18 @@ fn parse_brackets(tokens: &[Token]) -> (TreeNode, usize) {
         }
     }
 
-    return (
-        TreeNode::new(TreeNodeType::Brackets(children)),
-        tokens.len(),
-    );
+    panic!("Unmatched brackets")
 }
 
 fn parse(tokens: &[Token]) -> TreeNode {
-    return parse_brackets(tokens).0;
+    let tokens = [
+        &[Token::new(TokenType::OpenBracket)],
+        tokens,
+        &[Token::new(TokenType::ClosedBracket)],
+    ]
+    .concat();
+
+    return parse_brackets(&mut tokens.iter().peekable());
 }
 
 fn ast_to_js(tree_node: &TreeNode) -> String {
@@ -311,15 +323,15 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 
     match &tree_node.node_type {
         TreeNodeType::Brackets(children) => {
-            js.push('{');
+            js.push_str("{\n");
             let children_str = children
                 .iter()
                 .map(|child| ast_to_js(child))
                 .collect::<Vec<_>>()
-                .join("\n");
+                .join(";\n");
 
             js.push_str(children_str.as_str());
-            js.push('}');
+            js.push_str("\n}");
         }
         TreeNodeType::FunctionCall(func_name, args) => {
             js.push_str(match func_name.as_str() {
@@ -395,5 +407,5 @@ pub fn code_string_to_js(text: &str) -> String {
     let ast = parse(&tokens);
     let js = ast_to_js(&ast);
 
-    return String::from(&js[1..(js.len() - 1)]);
+    return String::from(&js[2..(js.len() - 2)]);
 }

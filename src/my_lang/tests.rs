@@ -18,13 +18,22 @@ fn function_call() {
 
 #[test]
 fn function_declaration() {
-    assert_eq!("function f() {}", code_string_to_js("fn f() {}"));
+    assert_eq!(
+        "function f() {
+		
+	}"
+        .replace("\t", ""),
+        code_string_to_js("fn f() {}")
+    );
 }
 
 #[test]
 fn conditional() {
     assert_eq!(
-        "if (true) {let x = 10}",
+        "if (true) {
+			let x = 10
+		}"
+        .replace("\t", ""),
         code_string_to_js("if true { let x = 10 }")
     );
 }
@@ -32,7 +41,41 @@ fn conditional() {
 #[test]
 fn while_loop() {
     assert_eq!(
-        "while (true) {let x = 10}",
-        code_string_to_js("while true { let x = 10 }")
+        "while (true) {
+			console.log(10)
+		}"
+        .replace("\t", ""),
+        code_string_to_js("while true { print(10) }")
+    );
+}
+
+#[test]
+fn asd() {
+    assert_eq!(
+        "function dostuff() {
+			let i = 0;
+			while (false) {
+				i = 1
+			};
+			if (true) {
+				console.log(i)
+			}
+		};
+		dostuff()"
+            .replace("\t", ""),
+        code_string_to_js(
+            "
+				fn dostuff() {
+					let i = 0
+					while false {
+						i = 1
+					}
+	
+					if true { print(i) }
+				}
+
+				dostuff()
+		  "
+        )
     );
 }
