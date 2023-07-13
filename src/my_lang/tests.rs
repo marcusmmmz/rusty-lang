@@ -2,6 +2,14 @@
 use crate::my_lang::code_string_to_js;
 
 #[test]
+fn hello_world() {
+	assert_eq!(
+		"console.log(\"Hello World\")",
+		code_string_to_js("print(\"Hello World\")")
+	);
+}
+
+#[test]
 fn let_declaration() {
 	assert_eq!("let a = 10", code_string_to_js("let a = 10;"));
 }

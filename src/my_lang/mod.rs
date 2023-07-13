@@ -1,4 +1,4 @@
-use std::{iter::Peekable, slice::Iter};
+use std::{iter::Peekable, slice::Iter, str::Chars};
 
 mod tests;
 
@@ -12,6 +12,7 @@ enum BinaryOperatorType {
 enum TokenType {
 	Number(f32),
 	Identifier(String),
+	String(String),
 	BinaryOperator(BinaryOperatorType),
 	OpenParen,
 	ClosedParen,
@@ -29,6 +30,20 @@ impl Token {
 	}
 }
 
+fn tokenize_string(iter: &mut Chars) -> Token {
+	let mut string = String::new();
+
+	for char in iter {
+		if char == '"' {
+			return Token::new(TokenType::String(string));
+		} else {
+			string.push(char);
+		}
+	}
+
+	panic!("Unfinished string")
+}
+
 fn tokenize(text: &str) -> Vec<Token> {
 	let text = text.to_owned() + "\n";
 
@@ -42,13 +57,18 @@ fn tokenize(text: &str) -> Vec<Token> {
 	let mut state = State::None;
 	let mut tokens = vec![];
 
-	for char in text.chars() {
+	let mut iter = text.chars();
+
+	while let Some(char) = iter.next() {
 		match char {
 			'a'..='z' | 'A'..='Z' => match state {
 				State::None => state = State::Identifier(char.to_string()),
 				State::Identifier(ref mut sequence) => sequence.push(char),
 				_ => panic!(),
 			},
+			'"' => {
+				tokens.push(tokenize_string(&mut iter));
+			}
 			'0'..='9' => match state {
 				State::None => state = State::Number(char.to_string()),
 				State::Number(ref mut sequence) => sequence.push(char),
@@ -99,6 +119,7 @@ enum TreeNodeType {
 	Brackets(Vec<TreeNode>),
 	Number(f32),
 	Identifier(String),
+	String(String),
 	LetStatement(String, Box<TreeNode>),
 	Assignment(String, Box<TreeNode>),
 	IfStatement(Box<TreeNode>, Box<TreeNode>),
@@ -122,6 +143,9 @@ fn parse_expression<'a>(iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 	match &iter.next().unwrap().token_type {
 		TokenType::Number(number) => {
 			TreeNode::new(TreeNodeType::Number(*number))
+		}
+		TokenType::String(string) => {
+			TreeNode::new(TreeNodeType::String(string.clone()))
 		}
 		TokenType::Identifier(identifier) => {
 			TreeNode::new(TreeNodeType::Identifier(identifier.clone()))
@@ -298,6 +322,9 @@ fn parse_brackets<'a>(mut iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 			TokenType::ClosedBracket => {
 				return TreeNode::new(TreeNodeType::Brackets(children));
 			}
+			TokenType::String(string) => {
+				return TreeNode::new(TreeNodeType::String(string.clone()));
+			}
 			TokenType::BinaryOperator(_)
 			| TokenType::Number(_)
 			| TokenType::OpenParen => panic!(),
@@ -396,6 +423,11 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 		TreeNodeType::Number(number) => js.push_str(&number.to_string()),
 		TreeNodeType::Identifier(identifier) => {
 			js.push_str(identifier.as_str())
+		}
+		TreeNodeType::String(string) => {
+			js.push('"');
+			js.push_str(string.as_str());
+			js.push('"');
 		}
 	}
 
