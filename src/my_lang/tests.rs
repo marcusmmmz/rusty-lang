@@ -47,6 +47,17 @@ fn conditional() {
 }
 
 #[test]
+fn comparison_operators() {
+	assert_eq!(
+		"if (1 == 1) {
+			
+		}"
+		.replace("\t", ""),
+		code_string_to_js("if 1 == 1 {}")
+	);
+}
+
+#[test]
 fn while_loop() {
 	assert_eq!(
 		"while (true) {

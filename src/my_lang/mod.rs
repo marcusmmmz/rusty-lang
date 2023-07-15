@@ -4,8 +4,10 @@ mod tests;
 
 #[derive(Clone, Debug)]
 enum BinaryOperatorType {
+	Assignment,
 	Equals,
-	DoubleEquals,
+	Less,
+	Greater,
 }
 
 #[derive(Clone, Debug)]
@@ -77,13 +79,25 @@ fn tokenize(text: &str) -> Vec<Token> {
 			},
 			'=' => match state {
 				State::None => {
+					state =
+						State::BinaryOperator(BinaryOperatorType::Assignment);
+				}
+				State::BinaryOperator(BinaryOperatorType::Assignment) => {
 					state = State::BinaryOperator(BinaryOperatorType::Equals);
 				}
-				State::BinaryOperator(BinaryOperatorType::Equals) => {
-					state =
-						State::BinaryOperator(BinaryOperatorType::DoubleEquals);
-				}
 				_ => panic!("This is an invalid operator"),
+			},
+			'>' => match state {
+				State::None => {
+					state = State::BinaryOperator(BinaryOperatorType::Greater);
+				}
+				_ => panic!(),
+			},
+			'<' => match state {
+				State::None => {
+					state = State::BinaryOperator(BinaryOperatorType::Less);
+				}
+				_ => panic!(),
 			},
 			' ' | '\n' | '\r' | '\t' | ';' | '(' | ')' => {
 				match state {
@@ -120,6 +134,7 @@ enum TreeNodeType {
 	Number(f32),
 	Identifier(String),
 	String(String),
+	BinaryOperation(Box<TreeNode>, BinaryOperatorType, Box<TreeNode>),
 	LetStatement(String, Box<TreeNode>),
 	Assignment(String, Box<TreeNode>),
 	IfStatement(Box<TreeNode>, Box<TreeNode>),
@@ -139,16 +154,65 @@ impl TreeNode {
 	}
 }
 
+fn parse_binary_operator<'a>(
+	expr_1: TreeNode,
+	iter: &mut Peekable<Iter<'a, Token>>,
+) -> TreeNode {
+	match &iter.next().unwrap().token_type {
+		TokenType::BinaryOperator(operator) => match operator {
+			BinaryOperatorType::Equals
+			| BinaryOperatorType::Less
+			| BinaryOperatorType::Greater => {
+				return TreeNode::new(TreeNodeType::BinaryOperation(
+					Box::new(expr_1),
+					operator.clone(),
+					Box::new(parse_expression(iter)),
+				));
+			}
+			BinaryOperatorType::Assignment => {
+				return TreeNode::new(TreeNodeType::Assignment(
+					match expr_1.node_type {
+						TreeNodeType::Identifier(identifier) => {
+							identifier.clone()
+						}
+						_ => panic!("Cannot assign to this"),
+					},
+					Box::new(parse_expression(iter)),
+				));
+			}
+		},
+		_ => panic!(),
+	}
+}
+
 fn parse_expression<'a>(iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 	match &iter.next().unwrap().token_type {
 		TokenType::Number(number) => {
-			TreeNode::new(TreeNodeType::Number(*number))
+			let expr = TreeNode::new(TreeNodeType::Number(*number));
+
+			match &iter.peek().unwrap().token_type {
+				TokenType::BinaryOperator(_) => {
+					parse_binary_operator(expr, iter)
+				}
+				_ => expr,
+			}
 		}
 		TokenType::String(string) => {
 			TreeNode::new(TreeNodeType::String(string.clone()))
 		}
 		TokenType::Identifier(identifier) => {
-			TreeNode::new(TreeNodeType::Identifier(identifier.clone()))
+			return match &iter.peek().unwrap().token_type {
+				TokenType::BinaryOperator(_) => parse_binary_operator(
+					TreeNode::new(TreeNodeType::Identifier(identifier.clone())),
+					iter,
+				),
+				TokenType::OpenParen => {
+					parse_function_call(identifier.clone(), iter)
+				}
+				_ => {
+					TreeNode::new(TreeNodeType::Identifier(identifier.clone()))
+				}
+			};
 		}
 		_ => {
 			panic!("This should be an expression")
@@ -190,30 +254,13 @@ fn parse_let_statement<'a>(
 	};
 
 	match iter.next().unwrap().token_type {
-		TokenType::BinaryOperator(BinaryOperatorType::Equals) => {}
+		TokenType::BinaryOperator(BinaryOperatorType::Assignment) => {}
 		_ => panic!(),
 	};
 
 	let expression = parse_expression(&mut iter);
 
 	return TreeNode::new(TreeNodeType::LetStatement(
-		identifier.clone(),
-		Box::new(expression),
-	));
-}
-
-fn parse_assignment<'a>(
-	identifier: String,
-	mut iter: &mut Peekable<Iter<'a, Token>>,
-) -> TreeNode {
-	match iter.next().unwrap().token_type {
-		TokenType::BinaryOperator(BinaryOperatorType::Equals) => {}
-		_ => panic!(),
-	};
-
-	let expression = parse_expression(&mut iter);
-
-	return TreeNode::new(TreeNodeType::Assignment(
 		identifier.clone(),
 		Box::new(expression),
 	));
@@ -271,19 +318,6 @@ fn parse_function_declaration<'a>(
 	));
 }
 
-fn parse_unknown_identifier<'a>(
-	identifier: String,
-	mut iter: &mut Peekable<Iter<'a, Token>>,
-) -> TreeNode {
-	return match &iter.peek().unwrap().token_type {
-		TokenType::BinaryOperator(BinaryOperatorType::Equals) => {
-			parse_assignment(identifier, &mut iter)
-		}
-		TokenType::OpenParen => parse_function_call(identifier, &mut iter),
-		_ => panic!(),
-	};
-}
-
 fn parse_brackets<'a>(mut iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 	match iter.next().unwrap().token_type {
 		TokenType::OpenBracket => {}
@@ -292,7 +326,7 @@ fn parse_brackets<'a>(mut iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 
 	let mut children = vec![];
 
-	while let Some(token) = iter.next() {
+	while let Some(token) = iter.peek() {
 		macro_rules! parse_and_skip {
 			($parse_func: ident) => {{
 				let tree_node = $parse_func(&mut iter);
@@ -308,26 +342,38 @@ fn parse_brackets<'a>(mut iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 
 		match &token.token_type {
 			TokenType::Identifier(identifier) => match identifier.as_str() {
-				"let" => parse_and_skip!(parse_let_statement),
-				"if" => parse_and_skip!(parse_if_statement),
-				"while" => parse_and_skip!(parse_while_statement),
-				"fn" => parse_and_skip!(parse_function_declaration),
-				_ => parse_and_skip!(
-					parse_unknown_identifier,
-					identifier.clone()
-				),
+				"let" => {
+					iter.next();
+					parse_and_skip!(parse_let_statement)
+				}
+				"if" => {
+					iter.next();
+					parse_and_skip!(parse_if_statement)
+				}
+				"while" => {
+					iter.next();
+					parse_and_skip!(parse_while_statement)
+				}
+				"fn" => {
+					iter.next();
+					parse_and_skip!(parse_function_declaration)
+				}
+				_ => parse_and_skip!(parse_expression),
 			},
-			TokenType::ClosedParen => panic!("Unmatched parenthesis"),
-			TokenType::OpenBracket => parse_and_skip!(parse_brackets),
-			TokenType::ClosedBracket => {
-				return TreeNode::new(TreeNodeType::Brackets(children));
-			}
-			TokenType::String(string) => {
-				return TreeNode::new(TreeNodeType::String(string.clone()));
-			}
-			TokenType::BinaryOperator(_)
-			| TokenType::Number(_)
-			| TokenType::OpenParen => panic!(),
+			_ => match &iter.next().unwrap().token_type {
+				TokenType::Identifier(_) => panic!(),
+				TokenType::ClosedParen => panic!("Unmatched parenthesis"),
+				TokenType::OpenBracket => parse_and_skip!(parse_brackets),
+				TokenType::ClosedBracket => {
+					return TreeNode::new(TreeNodeType::Brackets(children));
+				}
+				TokenType::String(string) => {
+					return TreeNode::new(TreeNodeType::String(string.clone()));
+				}
+				TokenType::BinaryOperator(_)
+				| TokenType::Number(_)
+				| TokenType::OpenParen => panic!(),
+			},
 		}
 	}
 
@@ -428,6 +474,19 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 			js.push('"');
 			js.push_str(string.as_str());
 			js.push('"');
+		}
+		TreeNodeType::BinaryOperation(expr1, operator, expr2) => {
+			let operator_str = match operator {
+				BinaryOperatorType::Assignment => panic!(),
+				BinaryOperatorType::Equals => "==",
+				BinaryOperatorType::Greater => ">",
+				BinaryOperatorType::Less => "<",
+			};
+
+			let expr1 = &ast_to_js(expr1);
+			let expr2 = &ast_to_js(expr2);
+
+			js.push_str(&format!("{expr1} {operator_str} {expr2}"));
 		}
 	}
 
