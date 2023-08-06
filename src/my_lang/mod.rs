@@ -8,6 +8,10 @@ enum BinaryOperatorType {
 	Equals,
 	Less,
 	Greater,
+	Add,
+	Subtract,
+	Multiply,
+	Divide,
 }
 
 #[derive(Clone, Debug)]
@@ -99,6 +103,18 @@ fn tokenize(text: &str) -> Vec<Token> {
 				}
 				_ => panic!(),
 			},
+			'+' | '-' | '*' | '/' => match state {
+				State::None => {
+					state = State::BinaryOperator(match char {
+						'+' => BinaryOperatorType::Add,
+						'-' => BinaryOperatorType::Subtract,
+						'*' => BinaryOperatorType::Multiply,
+						'/' => BinaryOperatorType::Divide,
+						_ => panic!(),
+					})
+				}
+				_ => panic!(),
+			},
 			' ' | '\n' | '\r' | '\t' | ';' | '(' | ')' => {
 				match state {
 					State::None => {}
@@ -128,7 +144,7 @@ fn tokenize(text: &str) -> Vec<Token> {
 	return tokens;
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum TreeNodeType {
 	Brackets(Vec<TreeNode>),
 	Number(f32),
@@ -136,14 +152,13 @@ enum TreeNodeType {
 	String(String),
 	BinaryOperation(Box<TreeNode>, BinaryOperatorType, Box<TreeNode>),
 	LetStatement(String, Box<TreeNode>),
-	Assignment(String, Box<TreeNode>),
 	IfStatement(Box<TreeNode>, Box<TreeNode>),
 	WhileStatement(Box<TreeNode>, Box<TreeNode>),
 	FunctionCall(String, Vec<TreeNode>),
 	FunctionDeclaration(String, Vec<TreeNode>, Box<TreeNode>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TreeNode {
 	node_type: TreeNodeType,
 }
@@ -154,69 +169,126 @@ impl TreeNode {
 	}
 }
 
-fn parse_binary_operator<'a>(
-	expr_1: TreeNode,
+fn try_parse_expr_unit<'a>(
 	iter: &mut Peekable<Iter<'a, Token>>,
-) -> TreeNode {
-	match &iter.next().unwrap().token_type {
-		TokenType::BinaryOperator(operator) => match operator {
-			BinaryOperatorType::Equals
-			| BinaryOperatorType::Less
-			| BinaryOperatorType::Greater => {
-				return TreeNode::new(TreeNodeType::BinaryOperation(
-					Box::new(expr_1),
-					operator.clone(),
-					Box::new(parse_expression(iter)),
-				));
+) -> Option<TreeNode> {
+	let token = iter.peek().unwrap();
+
+	match &token.token_type {
+		TokenType::Number(number) => {
+			iter.next();
+			Some(TreeNode::new(TreeNodeType::Number(*number)))
+		}
+		TokenType::String(string) => {
+			iter.next();
+			Some(TreeNode::new(TreeNodeType::String(string.clone())))
+		}
+		TokenType::Identifier(identifier) => {
+			iter.next();
+			match &iter.peek().unwrap().token_type {
+				// TokenType::BinaryOperator(_) => parse_binary_operator(
+				// 	TreeNode::new(TreeNodeType::Identifier(identifier.clone())),
+				// 	iter,
+				// ),
+				TokenType::OpenParen => {
+					Some(parse_function_call(identifier.clone(), iter))
+				}
+				_ => Some(TreeNode::new(TreeNodeType::Identifier(
+					identifier.clone(),
+				))),
 			}
-			BinaryOperatorType::Assignment => {
-				return TreeNode::new(TreeNodeType::Assignment(
-					match expr_1.node_type {
-						TreeNodeType::Identifier(identifier) => {
-							identifier.clone()
-						}
-						_ => panic!("Cannot assign to this"),
-					},
-					Box::new(parse_expression(iter)),
-				));
-			}
-		},
-		_ => panic!(),
+		}
+		_ => None,
 	}
 }
 
-fn parse_expression<'a>(iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
-	match &iter.next().unwrap().token_type {
-		TokenType::Number(number) => {
-			let expr = TreeNode::new(TreeNodeType::Number(*number));
+fn get_operator_precedence(operator: &BinaryOperatorType) -> i32 {
+	match operator {
+		BinaryOperatorType::Equals
+		| BinaryOperatorType::Greater
+		| BinaryOperatorType::Less
+		| BinaryOperatorType::Assignment => 0,
+		BinaryOperatorType::Add | BinaryOperatorType::Subtract => 1,
+		BinaryOperatorType::Multiply | BinaryOperatorType::Divide => 2,
+	}
+}
 
-			match &iter.peek().unwrap().token_type {
-				TokenType::BinaryOperator(_) => {
-					parse_binary_operator(expr, iter)
+fn parse_known_size_expression(nodes: &[TreeNode]) -> TreeNode {
+	if nodes.len() == 1 {
+		return nodes.get(0).unwrap().clone();
+	};
+
+	let mut lowest_precedence = 9999;
+	let mut lowest_precedence_index = 0;
+	let mut lowest_precedence_operator = None;
+
+	for (i, node) in nodes.iter().enumerate() {
+		match &node.node_type {
+			TreeNodeType::BinaryOperation(_, operator, _) => {
+				let op_precedence = get_operator_precedence(&operator);
+
+				if op_precedence < lowest_precedence {
+					lowest_precedence = op_precedence;
+					lowest_precedence_index = i;
+					lowest_precedence_operator = Some(operator)
 				}
-				_ => expr,
 			}
-		}
-		TokenType::String(string) => {
-			TreeNode::new(TreeNodeType::String(string.clone()))
-		}
-		TokenType::Identifier(identifier) => {
-			return match &iter.peek().unwrap().token_type {
-				TokenType::BinaryOperator(_) => parse_binary_operator(
-					TreeNode::new(TreeNodeType::Identifier(identifier.clone())),
-					iter,
-				),
-				TokenType::OpenParen => {
-					parse_function_call(identifier.clone(), iter)
+			_ => {}
+		};
+	}
+
+	TreeNode::new(TreeNodeType::BinaryOperation(
+		Box::new(parse_known_size_expression(
+			&nodes[..lowest_precedence_index],
+		)),
+		lowest_precedence_operator.unwrap().clone(),
+		Box::new(parse_known_size_expression(
+			&nodes[lowest_precedence_index + 1..],
+		)),
+	))
+}
+
+fn parse_expression<'a>(iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
+	let first_unit = try_parse_expr_unit(iter).unwrap();
+
+	let Some(token) = iter.peek() else {
+		return first_unit;
+	};
+
+	match token.token_type {
+		TokenType::BinaryOperator(_) => {
+			let mut nodes = vec![first_unit];
+
+			loop {
+				match &iter.peek().unwrap().token_type {
+					TokenType::BinaryOperator(operator) => {
+						iter.next();
+						nodes.push(TreeNode::new(
+							TreeNodeType::BinaryOperation(
+								Box::new(TreeNode::new(TreeNodeType::Number(
+									0.0,
+								))),
+								operator.clone(),
+								Box::new(TreeNode::new(TreeNodeType::Number(
+									0.0,
+								))),
+							),
+						))
+					}
+					_ => {
+						match try_parse_expr_unit(iter) {
+							None => break,
+							Some(node) => {
+								nodes.push(node);
+							}
+						};
+					}
 				}
-				_ => {
-					TreeNode::new(TreeNodeType::Identifier(identifier.clone()))
-				}
-			};
+			}
+
+			parse_known_size_expression(&nodes)
 		}
-		_ => {
-			panic!("This should be an expression")
-		}
+		_ => first_unit,
 	}
 }
 
@@ -236,6 +308,7 @@ fn parse_parenthesis<'a>(
 		match token.token_type {
 			TokenType::ClosedParen => {
 				iter.next();
+
 				return children;
 			}
 			_ => {
@@ -461,11 +534,6 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 			js.push_str(" = ");
 			js.push_str(&ast_to_js(value));
 		}
-		TreeNodeType::Assignment(variable, value) => {
-			js.push_str(variable);
-			js.push_str(" = ");
-			js.push_str(&ast_to_js(value));
-		}
 		TreeNodeType::Number(number) => js.push_str(&number.to_string()),
 		TreeNodeType::Identifier(identifier) => {
 			js.push_str(identifier.as_str())
@@ -477,10 +545,14 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 		}
 		TreeNodeType::BinaryOperation(expr1, operator, expr2) => {
 			let operator_str = match operator {
-				BinaryOperatorType::Assignment => panic!(),
+				BinaryOperatorType::Assignment => "=",
 				BinaryOperatorType::Equals => "==",
 				BinaryOperatorType::Greater => ">",
 				BinaryOperatorType::Less => "<",
+				BinaryOperatorType::Add => "+",
+				BinaryOperatorType::Subtract => "-",
+				BinaryOperatorType::Multiply => "*",
+				BinaryOperatorType::Divide => "/",
 			};
 
 			let expr1 = &ast_to_js(expr1);
@@ -496,6 +568,7 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 pub fn code_string_to_js(text: &str) -> String {
 	let tokens = tokenize(text);
 	let ast = parse(&tokens);
+	dbg!(&ast);
 	let js = ast_to_js(&ast);
 
 	return String::from(&js[2..(js.len() - 2)]);
