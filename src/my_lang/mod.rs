@@ -22,6 +22,9 @@ enum TokenType {
 	BinaryOperator(BinaryOperatorType),
 	OpenParen,
 	ClosedParen,
+	OpenSquareBracket,
+	Comma,
+	ClosedSquareBracket,
 	OpenBracket,
 	ClosedBracket,
 }
@@ -115,7 +118,7 @@ fn tokenize(text: &str) -> Vec<Token> {
 				}
 				_ => panic!(),
 			},
-			' ' | '\n' | '\r' | '\t' | ';' | '(' | ')' => {
+			' ' | '\n' | '\r' | '\t' | ';' | '(' | ')' | '[' | ']' | ',' => {
 				match state {
 					State::None => {}
 					State::Number(number) => tokens.push(Token::new(
@@ -132,6 +135,13 @@ fn tokenize(text: &str) -> Vec<Token> {
 				match char {
 					'(' => tokens.push(Token::new(TokenType::OpenParen)),
 					')' => tokens.push(Token::new(TokenType::ClosedParen)),
+					'[' => {
+						tokens.push(Token::new(TokenType::OpenSquareBracket))
+					}
+					']' => {
+						tokens.push(Token::new(TokenType::ClosedSquareBracket))
+					}
+					',' => tokens.push(Token::new(TokenType::Comma)),
 					_ => {}
 				};
 			}
@@ -150,6 +160,7 @@ enum TreeNodeType {
 	Number(f32),
 	Identifier(String),
 	String(String),
+	SquareBrackets(Vec<TreeNode>),
 	BinaryOperation(Box<TreeNode>, BinaryOperatorType, Box<TreeNode>),
 	LetStatement(String, Box<TreeNode>),
 	IfStatement(Box<TreeNode>, Box<TreeNode>),
@@ -166,6 +177,34 @@ pub struct TreeNode {
 impl TreeNode {
 	fn new(node_type: TreeNodeType) -> Self {
 		return TreeNode { node_type };
+	}
+}
+
+fn parse_square_brackets<'a>(iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
+	let mut nodes = vec![];
+
+	if matches!(
+		iter.peek().unwrap().token_type,
+		TokenType::ClosedSquareBracket
+	) {
+		iter.next();
+		return TreeNode::new(TreeNodeType::SquareBrackets(nodes));
+	}
+
+	loop {
+		nodes.push(parse_expression(iter));
+
+		match iter.peek().unwrap().token_type {
+			TokenType::Comma => {
+				iter.next();
+				continue;
+			}
+			TokenType::ClosedSquareBracket => {
+				iter.next();
+				return TreeNode::new(TreeNodeType::SquareBrackets(nodes));
+			}
+			_ => panic!(),
+		}
 	}
 }
 
@@ -186,10 +225,6 @@ fn try_parse_expr_unit<'a>(
 		TokenType::Identifier(identifier) => {
 			iter.next();
 			match &iter.peek().unwrap().token_type {
-				// TokenType::BinaryOperator(_) => parse_binary_operator(
-				// 	TreeNode::new(TreeNodeType::Identifier(identifier.clone())),
-				// 	iter,
-				// ),
 				TokenType::OpenParen => {
 					Some(parse_function_call(identifier.clone(), iter))
 				}
@@ -197,6 +232,10 @@ fn try_parse_expr_unit<'a>(
 					identifier.clone(),
 				))),
 			}
+		}
+		TokenType::OpenSquareBracket => {
+			iter.next();
+			Some(parse_square_brackets(iter))
 		}
 		_ => None,
 	}
@@ -435,6 +474,12 @@ fn parse_brackets<'a>(mut iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 			},
 			_ => match &iter.next().unwrap().token_type {
 				TokenType::Identifier(_) => panic!(),
+				TokenType::OpenSquareBracket => {
+					parse_and_skip!(parse_expression)
+				}
+				TokenType::ClosedSquareBracket => {
+					panic!("Unmatched square brackets")
+				}
 				TokenType::ClosedParen => panic!("Unmatched parenthesis"),
 				TokenType::OpenBracket => parse_and_skip!(parse_brackets),
 				TokenType::ClosedBracket => {
@@ -444,6 +489,7 @@ fn parse_brackets<'a>(mut iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 					return TreeNode::new(TreeNodeType::String(string.clone()));
 				}
 				TokenType::BinaryOperator(_)
+				| TokenType::Comma
 				| TokenType::Number(_)
 				| TokenType::OpenParen => panic!(),
 			},
@@ -478,6 +524,17 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 
 			js.push_str(children_str.as_str());
 			js.push_str("\n}");
+		}
+		TreeNodeType::SquareBrackets(children) => {
+			js.push_str("[");
+			let children_str = children
+				.iter()
+				.map(|child| ast_to_js(child))
+				.collect::<Vec<_>>()
+				.join(", ");
+
+			js.push_str(children_str.as_str());
+			js.push_str("]");
 		}
 		TreeNodeType::FunctionCall(func_name, args) => {
 			js.push_str(match func_name.as_str() {
@@ -568,7 +625,6 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 pub fn code_string_to_js(text: &str) -> String {
 	let tokens = tokenize(text);
 	let ast = parse(&tokens);
-	dbg!(&ast);
 	let js = ast_to_js(&ast);
 
 	return String::from(&js[2..(js.len() - 2)]);

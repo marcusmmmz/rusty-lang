@@ -77,6 +77,14 @@ fn operator_precedence() {
 }
 
 #[test]
+fn aaaa() {
+	assert_eq!(
+		"console.log([1, 2, 3])".replace("\t", ""),
+		code_string_to_js("print([1, 2, 3])")
+	);
+}
+
+#[test]
 fn asd() {
 	assert_eq!(
 		"function dostuff() {
