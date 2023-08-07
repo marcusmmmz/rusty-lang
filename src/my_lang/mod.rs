@@ -163,6 +163,7 @@ enum TreeNodeType {
 	Number(f32),
 	Identifier(String),
 	String(String),
+	ReturnStatement(Box<TreeNode>),
 	Member(Vec<TreeNode>),
 	ArrayCreation(Vec<TreeNode>),
 	BinaryOperation(Box<TreeNode>, BinaryOperatorType, Box<TreeNode>),
@@ -182,6 +183,14 @@ impl TreeNode {
 	fn new(node_type: TreeNodeType) -> Self {
 		return TreeNode { node_type };
 	}
+}
+
+fn parse_return_statement<'a>(
+	iter: &mut Peekable<Iter<'a, Token>>,
+) -> TreeNode {
+	TreeNode::new(TreeNodeType::ReturnStatement(Box::new(parse_expression(
+		iter,
+	))))
 }
 
 fn parse_square_brackets<'a>(iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
@@ -482,11 +491,6 @@ fn parse_brackets<'a>(mut iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 
 				children.push(tree_node);
 			}};
-			($parse_func: ident, $arg: expr) => {{
-				let tree_node = $parse_func($arg, &mut iter);
-
-				children.push(tree_node);
-			}};
 		}
 
 		match &token.token_type {
@@ -506,6 +510,10 @@ fn parse_brackets<'a>(mut iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 				"fn" => {
 					iter.next();
 					parse_and_skip!(parse_function_declaration)
+				}
+				"return" => {
+					iter.next();
+					parse_and_skip!(parse_return_statement)
 				}
 				_ => parse_and_skip!(parse_expression),
 			},
@@ -552,6 +560,10 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 	let mut js = String::new();
 
 	match &tree_node.node_type {
+		TreeNodeType::ReturnStatement(expr) => {
+			js.push_str("return ");
+			js.push_str(&ast_to_js(expr));
+		}
 		TreeNodeType::Brackets(children) => {
 			js.push_str("{\n");
 			let children_str = children

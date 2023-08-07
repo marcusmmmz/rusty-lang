@@ -93,6 +93,30 @@ fn member_expression() {
 }
 
 #[test]
+fn fibonnaci() {
+	assert_eq!(
+		"function factorial(n) {
+			if (n == 1) {\nreturn n\n};
+			return n * factorial(n - 1)
+		};
+		factorial(10)"
+			.replace("\t", ""),
+		code_string_to_js(
+			"fn factorial(n) {
+				if n == 1 {
+					return n
+				}
+				
+				return n * factorial(n - 1)
+			}
+			
+			factorial(10)
+			"
+		)
+	);
+}
+
+#[test]
 fn asd() {
 	assert_eq!(
 		"function dostuff() {
