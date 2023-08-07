@@ -77,10 +77,18 @@ fn operator_precedence() {
 }
 
 #[test]
-fn aaaa() {
+fn array_creation() {
 	assert_eq!(
 		"console.log([1, 2, 3])".replace("\t", ""),
 		code_string_to_js("print([1, 2, 3])")
+	);
+}
+
+#[test]
+fn member_expression() {
+	assert_eq!(
+		"console.log(a.b.c.d)".replace("\t", ""),
+		code_string_to_js("print(a.b.c.d)")
 	);
 }
 

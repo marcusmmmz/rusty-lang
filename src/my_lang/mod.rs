@@ -24,6 +24,7 @@ enum TokenType {
 	ClosedParen,
 	OpenSquareBracket,
 	Comma,
+	Dot,
 	ClosedSquareBracket,
 	OpenBracket,
 	ClosedBracket,
@@ -118,7 +119,8 @@ fn tokenize(text: &str) -> Vec<Token> {
 				}
 				_ => panic!(),
 			},
-			' ' | '\n' | '\r' | '\t' | ';' | '(' | ')' | '[' | ']' | ',' => {
+			' ' | '\n' | '\r' | '\t' | ';' | '(' | ')' | '[' | ']' | ','
+			| '.' => {
 				match state {
 					State::None => {}
 					State::Number(number) => tokens.push(Token::new(
@@ -142,6 +144,7 @@ fn tokenize(text: &str) -> Vec<Token> {
 						tokens.push(Token::new(TokenType::ClosedSquareBracket))
 					}
 					',' => tokens.push(Token::new(TokenType::Comma)),
+					'.' => tokens.push(Token::new(TokenType::Dot)),
 					_ => {}
 				};
 			}
@@ -160,7 +163,8 @@ enum TreeNodeType {
 	Number(f32),
 	Identifier(String),
 	String(String),
-	SquareBrackets(Vec<TreeNode>),
+	Member(Vec<TreeNode>),
+	ArrayCreation(Vec<TreeNode>),
 	BinaryOperation(Box<TreeNode>, BinaryOperatorType, Box<TreeNode>),
 	LetStatement(String, Box<TreeNode>),
 	IfStatement(Box<TreeNode>, Box<TreeNode>),
@@ -188,7 +192,7 @@ fn parse_square_brackets<'a>(iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 		TokenType::ClosedSquareBracket
 	) {
 		iter.next();
-		return TreeNode::new(TreeNodeType::SquareBrackets(nodes));
+		return TreeNode::new(TreeNodeType::ArrayCreation(nodes));
 	}
 
 	loop {
@@ -201,7 +205,7 @@ fn parse_square_brackets<'a>(iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 			}
 			TokenType::ClosedSquareBracket => {
 				iter.next();
-				return TreeNode::new(TreeNodeType::SquareBrackets(nodes));
+				return TreeNode::new(TreeNodeType::ArrayCreation(nodes));
 			}
 			_ => panic!(),
 		}
@@ -213,7 +217,7 @@ fn try_parse_expr_unit<'a>(
 ) -> Option<TreeNode> {
 	let token = iter.peek().unwrap();
 
-	match &token.token_type {
+	let res = match &token.token_type {
 		TokenType::Number(number) => {
 			iter.next();
 			Some(TreeNode::new(TreeNodeType::Number(*number)))
@@ -238,6 +242,14 @@ fn try_parse_expr_unit<'a>(
 			Some(parse_square_brackets(iter))
 		}
 		_ => None,
+	};
+
+	match res {
+		None => None,
+		Some(res) => Some(match iter.peek().unwrap().token_type {
+			TokenType::Dot => parse_member(res, iter),
+			_ => res,
+		}),
 	}
 }
 
@@ -411,6 +423,31 @@ fn parse_function_call<'a>(
 	return TreeNode::new(TreeNodeType::FunctionCall(func_name, args));
 }
 
+fn parse_member<'a>(
+	object: TreeNode,
+	iter: &mut Peekable<Iter<'a, Token>>,
+) -> TreeNode {
+	match iter.next().unwrap().token_type {
+		TokenType::Dot => {}
+		_ => panic!(),
+	}
+
+	let mut vec = vec![object];
+
+	loop {
+		let expr_unit = try_parse_expr_unit(iter).unwrap();
+
+		vec.push(expr_unit);
+
+		match iter.peek().unwrap().token_type {
+			TokenType::Dot => iter.next(),
+			_ => break,
+		};
+	}
+
+	TreeNode::new(TreeNodeType::Member(vec))
+}
+
 fn parse_function_declaration<'a>(
 	mut iter: &mut Peekable<Iter<'a, Token>>,
 ) -> TreeNode {
@@ -490,6 +527,7 @@ fn parse_brackets<'a>(mut iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
 				}
 				TokenType::BinaryOperator(_)
 				| TokenType::Comma
+				| TokenType::Dot
 				| TokenType::Number(_)
 				| TokenType::OpenParen => panic!(),
 			},
@@ -525,7 +563,16 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 			js.push_str(children_str.as_str());
 			js.push_str("\n}");
 		}
-		TreeNodeType::SquareBrackets(children) => {
+		TreeNodeType::Member(children) => {
+			let children_str = children
+				.iter()
+				.map(|child| ast_to_js(child))
+				.collect::<Vec<_>>()
+				.join(".");
+
+			js.push_str(children_str.as_str());
+		}
+		TreeNodeType::ArrayCreation(children) => {
 			js.push_str("[");
 			let children_str = children
 				.iter()
