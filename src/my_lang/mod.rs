@@ -170,7 +170,7 @@ enum TreeNodeType {
 	LetStatement(String, Box<TreeNode>),
 	IfStatement(Box<TreeNode>, Box<TreeNode>),
 	WhileStatement(Box<TreeNode>, Box<TreeNode>),
-	FunctionCall(String, Vec<TreeNode>),
+	FunctionCall(Box<TreeNode>, Vec<TreeNode>),
 	FunctionDeclaration(String, Vec<TreeNode>, Box<TreeNode>),
 }
 
@@ -371,6 +371,9 @@ fn parse_parenthesis<'a>(
 
 				return children;
 			}
+			TokenType::Comma => {
+				iter.next();
+			}
 			_ => {
 				children.push(parse_expression(iter));
 			}
@@ -429,7 +432,10 @@ fn parse_function_call<'a>(
 ) -> TreeNode {
 	let args = parse_parenthesis(&mut iter);
 
-	return TreeNode::new(TreeNodeType::FunctionCall(func_name, args));
+	return TreeNode::new(TreeNodeType::FunctionCall(
+		Box::new(TreeNode::new(TreeNodeType::Identifier(func_name))),
+		args,
+	));
 }
 
 fn parse_member<'a>(
@@ -595,11 +601,8 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 			js.push_str(children_str.as_str());
 			js.push_str("]");
 		}
-		TreeNodeType::FunctionCall(func_name, args) => {
-			js.push_str(match func_name.as_str() {
-				"print" => "console.log",
-				_ => &func_name,
-			});
+		TreeNodeType::FunctionCall(func_name_node, args) => {
+			js.push_str(&ast_to_js(func_name_node));
 
 			js.push('(');
 
@@ -652,7 +655,10 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 		}
 		TreeNodeType::Number(number) => js.push_str(&number.to_string()),
 		TreeNodeType::Identifier(identifier) => {
-			js.push_str(identifier.as_str())
+			js.push_str(match identifier.as_str() {
+				"print" => "console.log",
+				_ => &identifier,
+			});
 		}
 		TreeNodeType::String(string) => {
 			js.push('"');
