@@ -71,7 +71,7 @@ fn tokenize(text: &str) -> Vec<Token> {
 
 	while let Some(char) = iter.next() {
 		match char {
-			'a'..='z' | 'A'..='Z' => match state {
+			'a'..='z' | 'A'..='Z' | '_' => match state {
 				State::None => state = State::Identifier(char.to_string()),
 				State::Identifier(ref mut sequence) => sequence.push(char),
 				_ => panic!(),
@@ -309,47 +309,31 @@ fn parse_known_size_expression(nodes: &[TreeNode]) -> TreeNode {
 }
 
 fn parse_expression<'a>(iter: &mut Peekable<Iter<'a, Token>>) -> TreeNode {
-	let first_unit = try_parse_expr_unit(iter).unwrap();
+	let mut nodes = vec![];
+	let mut last_token_was_expr = false;
 
-	let Some(token) = iter.peek() else {
-		return first_unit;
-	};
+	loop {
+		if last_token_was_expr {
+			match &iter.peek().unwrap().token_type {
+				TokenType::BinaryOperator(operator) => {
+					iter.next();
+					nodes.push(TreeNode::new(TreeNodeType::BinaryOperation(
+						Box::new(TreeNode::new(TreeNodeType::Number(0.0))),
+						operator.clone(),
+						Box::new(TreeNode::new(TreeNodeType::Number(0.0))),
+					)));
 
-	match token.token_type {
-		TokenType::BinaryOperator(_) => {
-			let mut nodes = vec![first_unit];
-
-			loop {
-				match &iter.peek().unwrap().token_type {
-					TokenType::BinaryOperator(operator) => {
-						iter.next();
-						nodes.push(TreeNode::new(
-							TreeNodeType::BinaryOperation(
-								Box::new(TreeNode::new(TreeNodeType::Number(
-									0.0,
-								))),
-								operator.clone(),
-								Box::new(TreeNode::new(TreeNodeType::Number(
-									0.0,
-								))),
-							),
-						))
-					}
-					_ => {
-						match try_parse_expr_unit(iter) {
-							None => break,
-							Some(node) => {
-								nodes.push(node);
-							}
-						};
-					}
+					last_token_was_expr = false;
 				}
-			}
-
-			parse_known_size_expression(&nodes)
+				_ => break,
+			};
+		} else {
+			nodes.push(try_parse_expr_unit(iter).unwrap());
+			last_token_was_expr = true;
 		}
-		_ => first_unit,
 	}
+
+	return parse_known_size_expression(&nodes);
 }
 
 fn parse_parenthesis<'a>(
@@ -668,7 +652,7 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 		TreeNodeType::BinaryOperation(expr1, operator, expr2) => {
 			let operator_str = match operator {
 				BinaryOperatorType::Assignment => "=",
-				BinaryOperatorType::Equals => "==",
+				BinaryOperatorType::Equals => "===",
 				BinaryOperatorType::Greater => ">",
 				BinaryOperatorType::Less => "<",
 				BinaryOperatorType::Add => "+",
