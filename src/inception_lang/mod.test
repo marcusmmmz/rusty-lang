@@ -1,0 +1,240 @@
+fn or(a, b) {
+  if a { return true }
+  if b { return true }
+  return false
+}
+
+fn and(a, b) {
+  if a { if b { return true } }
+  return false
+}
+
+fn not(a) {
+  if a { return false }
+  return true
+}
+
+fn includes(arr, char) {
+	let i = 0
+
+	while i < arr.length {
+		if arr.at(i) == char {
+			return true
+		}
+
+		i = i + 1
+	}
+
+	return false
+}
+
+fn is_digit(char) {
+	return includes(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"], char)
+}
+
+fn is_operator(char) {
+	return includes(["+", "-", "*", "/"], char)
+}
+
+let TOKEN_NONE = "NONE"
+let TOKEN_NUMBER = "NUMBER"
+let TOKEN_OPERATOR = "OPERATOR"
+
+fn tokenize(text) {
+	let tokens = []
+
+	let state = TOKEN_NONE
+	let sequence = []
+	
+	let i = 0
+	while i < text.length {
+		let char = text.at(i)
+
+		if is_digit(char) {
+			state = TOKEN_NUMBER
+			sequence.push(char)
+		}
+
+		if is_operator(char) {
+			state = TOKEN_OPERATOR
+			sequence.push(char)
+		}
+
+		if or(char == " ", i == text.length - 1) {
+			if not(state == TOKEN_NONE) {
+				tokens.push([state, sequence])
+				state = TOKEN_NONE
+				sequence = []
+			}
+		}
+
+		i = i + 1
+	}
+
+	return tokens
+}
+
+fn get_token_type(token) {
+	return token.at(0)
+}
+
+fn get_token_value(token) {
+	return token.at(1)
+}
+
+let NODE_NUMBER = "NUMBER"
+let NODE_OPERATION = "OPERATION"
+
+fn get_node_type(node) {
+	return node.at(0)
+}
+
+fn get_node_value(node) {
+	return node.at(1)
+}
+
+fn get_operator_precedence(operator) {
+	if or(operator == "+", operator == "-") {
+		return 1
+	}
+
+	if or(operator == "*", operator == "/") {
+		return 2
+	}
+}
+
+fn parse_expression_unit(i, tokens) {
+	let token = tokens.at(i)
+
+	if get_token_type(token) == TOKEN_NUMBER {
+		return [i + 1, [NODE_NUMBER, get_token_value(token)]]
+	}
+
+	return [i, tokens]
+}
+
+fn split_exclude_middle(arr, middle) {
+	let left = []
+	let left_i = 0
+	while left_i < middle {
+		left.push(arr.at(left_i))
+        left_i = left_i + 1
+	}
+
+	let right = []
+	let right_i = middle + 1
+	while right_i < arr.length {
+		right.push(arr.at(right_i))
+        right_i = right_i + 1
+	}
+
+    return [left, right]
+}
+
+fn parse_known_size_expression(nodes) {
+	if nodes.length == 1 {
+		return nodes.at(0)
+	}
+
+	let lowest_precedence = 9999;
+	let lowest_precedence_index = 0;
+	let lowest_precedence_operation = " ";
+
+	let i = 0
+	while i < nodes.length {
+		let node = nodes.at(i)
+
+		if get_node_type(node) == NODE_OPERATION {
+			let operation = get_node_value(node).at(1)
+
+			let op_precedence = get_operator_precedence(operation);
+
+			if op_precedence < lowest_precedence {
+				lowest_precedence = op_precedence;
+				lowest_precedence_index = i;
+				lowest_precedence_operation = operation
+			}
+		}
+
+		i = i + 1
+	}
+
+	let left_and_right = split_exclude_middle(nodes, lowest_precedence_index)
+
+	let left = left_and_right.at(0)
+	let operator = nodes.at(lowest_precedence_index)
+	let right = left_and_right.at(1)
+
+	return [
+		NODE_OPERATION,
+		[
+			parse_known_size_expression(left),
+			lowest_precedence_operation,
+			parse_known_size_expression(right)
+		]
+	]
+}
+
+fn parse_expression(i, tokens) {
+	let nodes = []
+	let last_token_was_expr = false
+
+	while i < tokens.length {
+		let token = tokens.at(i)
+
+		if last_token_was_expr {
+			if get_token_type(token) == TOKEN_OPERATOR {
+				let operator = get_node_value(token)
+				nodes.push([NODE_OPERATION, ["0", operator.at(0), "0"]])
+				
+				last_token_was_expr = false
+				i = i + 1
+			} if not(get_token_type(token) == TOKEN_OPERATOR) {
+				return [i, parse_known_size_expression(nodes)]
+			}
+		} if not(last_token_was_expr) {
+			let ret = parse_expression_unit(i, tokens)
+			i = ret.at(0)
+			nodes.push( ret.at(1) )
+
+			last_token_was_expr = true
+		}
+	}
+
+	return [i, parse_known_size_expression(nodes)]
+}
+
+fn parse(tokens) {
+	let nodes = []
+	let i = 0
+
+	while i < tokens.length {
+		let ret = parse_expression(i, tokens)
+
+		return ret.at(1)
+	}
+}
+
+fn ast_to_js(node) {
+	if get_node_type(node) == NODE_OPERATION {
+		let ret = get_node_value(node)
+		let left = ret.at(0)
+		let operator = ret.at(1)
+		let right = ret.at(2)
+
+		return ast_to_js(left) + " " + operator + " " + ast_to_js(right)
+	}
+	if get_node_type(node) == NODE_NUMBER {
+		let number = get_node_value(node)
+
+		return number.at(0)
+	}
+}
+
+print(
+	ast_to_js(
+		parse(
+			tokenize("2 - 4 * 6 + 8 / 10")
+		)
+	)
+)

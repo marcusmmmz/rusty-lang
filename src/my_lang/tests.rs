@@ -49,7 +49,7 @@ fn conditional() {
 #[test]
 fn comparison_operators() {
 	assert_eq!(
-		"if (1 == 1) {
+		"if (1 === 1) {
 			
 		}"
 		.replace("\t", ""),
@@ -71,7 +71,7 @@ fn while_loop() {
 #[test]
 fn operator_precedence() {
 	assert_eq!(
-		"console.log(1 + 3 == 2 + 2)".replace("\t", ""),
+		"console.log(1 + 3 === 2 + 2)".replace("\t", ""),
 		code_string_to_js("print(1 + 3 == 2 + 2)")
 	);
 }
@@ -96,7 +96,7 @@ fn member_expression() {
 fn fibonnaci() {
 	assert_eq!(
 		"function factorial(n) {
-			if (n == 1) {\nreturn n\n};
+			if (n === 1) {\nreturn n\n};
 			return n * factorial(n - 1)
 		};
 		factorial(10)"
