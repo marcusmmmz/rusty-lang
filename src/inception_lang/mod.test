@@ -33,12 +33,97 @@ fn is_digit(char) {
 }
 
 fn is_operator(char) {
-	return includes(["+", "-", "*", "/"], char)
+	return includes(["+", "-", "*", "/", "=", "==", "<", ">"], char)
+}
+
+fn is_char(char) {
+	if and(char.charCodeAt(0) > 64, char.charCodeAt(0) < 91) {
+		return true
+	}
+	if and(char.charCodeAt(0) > 96, char.charCodeAt(0) < 123) {
+		return true
+	}
+
+	return false
 }
 
 let TOKEN_NONE = "NONE"
 let TOKEN_NUMBER = "NUMBER"
 let TOKEN_OPERATOR = "OPERATOR"
+let TOKEN_STRING = "STRING"
+let TOKEN_IDENTIFIER = "IDENTIFIER"
+let TOKEN_OPEN_BRACKET = "OPEN_BRACKET"
+let TOKEN_CLOSED_BRACKET = "CLOSED_BRACKET"
+
+fn tokenize_string(i, chars) {
+	let string = ""
+
+	let next_character_is_special = false
+
+	while i < chars.length {
+		let char = chars.at(i)
+
+		if next_character_is_special {
+			i = i + 1
+			string = string + char
+			next_character_is_special = false
+		}
+		if not(next_character_is_special) {
+			if char == "\"" {
+				i = i + 1
+				return [i, [TOKEN_STRING, string]]
+			}
+			if not(char == "\"") {
+				if char == "\\" {
+					i = i + 1
+					next_character_is_special = true
+				}
+				if not(char == "\\") {
+					i = i + 1
+					string = string + char
+				}
+			}
+		}
+	}
+
+	print("Unfinished string")
+}
+
+fn tokenize_identifier(i, chars) {
+	let identifier = ""
+
+	while i < chars.length {
+		let char = chars.at(i)
+
+		if or(is_char(char), char == "_") {
+			identifier = identifier + char
+			i = i + 1
+		} 
+		if not(is_char(char)) {
+			return [i, [TOKEN_IDENTIFIER, identifier]]
+		}
+	}
+
+	return [i, [TOKEN_IDENTIFIER, identifier]]
+}
+
+fn tokenize_number(i, chars) {
+	let number = ""
+
+	while i < chars.length {
+		let char = chars.at(i)
+
+		if is_digit(char) {
+			number = number + char
+			i = i + 1
+		} 
+		if not(is_digit(char)) {
+			return [i, [TOKEN_NUMBER, number]]
+		}
+	}
+
+	return [i, [TOKEN_NUMBER, number]]
+}
 
 fn tokenize(text) {
 	let tokens = []
@@ -50,14 +135,38 @@ fn tokenize(text) {
 	while i < text.length {
 		let char = text.at(i)
 
+		fn tokenize_and_skip(tokenize_func) {
+			let ret = tokenize_func(i, text)
+			i = ret.at(0)
+			tokens.push(ret.at(1))
+		}
+
+		if char.charCodeAt(0) == 34 {
+			i = i + 1
+			tokenize_and_skip(tokenize_string)
+		}
+
 		if is_digit(char) {
-			state = TOKEN_NUMBER
-			sequence.push(char)
+			tokenize_and_skip(tokenize_number)
+		}
+
+		if is_char(char) {
+			tokenize_and_skip(tokenize_identifier)
 		}
 
 		if is_operator(char) {
 			state = TOKEN_OPERATOR
 			sequence.push(char)
+		}
+
+		if char == "{" {
+			state = NONE
+			tokens.push([TOKEN_OPEN_BRACKET, []])
+		}
+
+		if char == "}" {
+			state = NONE
+			tokens.push([TOKEN_CLOSED_BRACKET, []])
 		}
 
 		if or(char == " ", i == text.length - 1) {
@@ -84,6 +193,10 @@ fn get_token_value(token) {
 
 let NODE_NUMBER = "NUMBER"
 let NODE_OPERATION = "OPERATION"
+let NODE_IDENTIFIER = "IDENTIFIER"
+let NODE_BRACKETS = "BRACKETS"
+let NODE_STRING = "STRING"
+let NODE_LET_STATEMENT = "LET_STATEMENT"
 
 fn get_node_type(node) {
 	return node.at(0)
@@ -94,6 +207,10 @@ fn get_node_value(node) {
 }
 
 fn get_operator_precedence(operator) {
+	if or(or(operator == "=", operator == "=="), or(operator == ">", operator == "<")) {
+		return 0
+	}
+
 	if or(operator == "+", operator == "-") {
 		return 1
 	}
@@ -103,14 +220,22 @@ fn get_operator_precedence(operator) {
 	}
 }
 
-fn parse_expression_unit(i, tokens) {
+fn try_parse_expression_unit(i, tokens) {
 	let token = tokens.at(i)
 
 	if get_token_type(token) == TOKEN_NUMBER {
 		return [i + 1, [NODE_NUMBER, get_token_value(token)]]
 	}
 
-	return [i, tokens]
+	if get_token_type(token) == TOKEN_STRING {
+		return [i + 1, [NODE_STRING, get_token_value(token)]]
+	}
+
+	if get_token_type(token) == TOKEN_IDENTIFIER {
+		return [i + 1, [NODE_IDENTIFIER, get_token_value(token)]]
+	}
+
+	return false
 }
 
 fn split_exclude_middle(arr, middle) {
@@ -193,7 +318,12 @@ fn parse_expression(i, tokens) {
 				return [i, parse_known_size_expression(nodes)]
 			}
 		} if not(last_token_was_expr) {
-			let ret = parse_expression_unit(i, tokens)
+			let ret = try_parse_expression_unit(i, tokens)
+
+			if not(ret) {
+				return [i, parse_known_size_expression(nodes)]
+			}
+
 			i = ret.at(0)
 			nodes.push( ret.at(1) )
 
@@ -204,15 +334,107 @@ fn parse_expression(i, tokens) {
 	return [i, parse_known_size_expression(nodes)]
 }
 
-fn parse(tokens) {
-	let nodes = []
-	let i = 0
+fn parse_let_statement(i, tokens) {
+	if get_node_type(tokens.at(i)) == TOKEN_IDENTIFIER {
+		let identifier = tokens.at(i)
+		i = i + 1
+
+		if get_node_type(tokens.at(i)) == TOKEN_OPERATOR {
+			if not(get_node_value(tokens.at(i)).at(0) == "=") {
+				return print("PANIC")
+			}
+			i = i + 1
+
+			let ret = parse_expression(i, tokens);
+			i = ret.at(0)
+
+			let expression = ret.at(1)
+
+			return [i, [NODE_LET_STATEMENT, [identifier, expression]]]
+		}
+		if not(get_node_type(tokens.at(i)) == TOKEN_OPERATOR) {
+			print("PANIC")
+		}
+	}
+	if not(get_node_type(tokens.at(i)) == TOKEN_IDENTIFIER) {
+		print("PANIC")
+	}
+}
+
+fn parse_brackets(i, tokens) {
+	if not(get_token_type(tokens.at(i)) == TOKEN_OPEN_BRACKET) {
+		return print("PANIC")
+	}
+	i = i + 1
+
+	let children = []
 
 	while i < tokens.length {
-		let ret = parse_expression(i, tokens)
+		let token = tokens.at(i)
 
-		return ret.at(1)
+		fn parse_and_skip(parse_func) {
+			let ret = parse_func(i, tokens)
+			i = ret.at(0)
+			let tree_node = ret.at(1)
+
+			children.push(tree_node)
+		}
+
+		let token_type = get_token_type(token)
+		let token_value = get_token_value(token)
+
+		let handled = false
+
+		if token_type == TOKEN_IDENTIFIER {
+			let handled_identifier = false
+
+			if token_value == "let" {
+				i = i + 1
+				parse_and_skip(parse_let_statement)
+				handled_identifier = true
+			}
+
+			if not(handled_identifier) {
+				parse_and_skip(parse_expression)
+			}
+
+			handled = true
+		}
+
+		if or(token_type == TOKEN_STRING, token_type == TOKEN_NUMBER) {
+			parse_and_skip(parse_expression)
+
+			handled = true
+		}
+
+		if not(handled) {
+			i = i + 1
+			let token = tokens.at(i)
+
+			if token_type == TOKEN_CLOSED_BRACKET {
+				return [i, [NODE_BRACKETS, children]]
+			}
+		}
 	}
+
+	print("Unmatched brackets")
+}
+
+fn parse(tokens) {
+	let new_tokens = [[TOKEN_OPEN_BRACKET, []]]
+	
+	let i = 0
+	while i < tokens.length {
+		let token = tokens.at(i)
+		new_tokens.push(token)
+		i = i + 1
+	}
+
+	new_tokens.push([TOKEN_CLOSED_BRACKET, []])
+
+	let parsed = parse_brackets(0, new_tokens)
+
+	return parsed.at(1)
 }
 
 fn ast_to_js(node) {
@@ -227,14 +449,49 @@ fn ast_to_js(node) {
 	if get_node_type(node) == NODE_NUMBER {
 		let number = get_node_value(node)
 
-		return number.at(0)
+		return number
+	}
+	if get_node_type(node) == NODE_IDENTIFIER {
+		return get_node_value(node)
+	}
+	if get_node_type(node) == NODE_STRING {
+		return get_node_value(node).replace("\\", "\\\\").replace("\"", "\\\"")
+	}
+	if get_node_type(node) == NODE_LET_STATEMENT {
+		let value = get_node_value(node)
+		let identifier = get_node_value(value.at(0))
+		let expression = ast_to_js( value.at(1) )
+
+		return "let " + identifier + " = " + expression
+	}
+	if get_node_type(node) == NODE_BRACKETS {
+		let children = get_node_value(node)
+		let output = "{"
+
+		let i = 0
+		while i < children.length {
+			let child = children.at(i)
+			output = output + ast_to_js(child) + ";"
+			i = i + 1
+		}
+
+		return output + "}"
 	}
 }
 
+fn code_string_to_js(text) {
+	let js = ast_to_js( parse( tokenize(text) ) )
+
+	let output = ""
+	let i = 1
+	while i < js.length - 1 {
+		output = output + js.at(i)
+		i = i + 1
+	}
+
+	return output
+}
+
 print(
-	ast_to_js(
-		parse(
-			tokenize("2 - 4 * 6 + 8 / 10")
-		)
-	)
+	code_string_to_js("let a = 10")
 )

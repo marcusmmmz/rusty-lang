@@ -43,11 +43,21 @@ impl Token {
 fn tokenize_string(iter: &mut Chars) -> Token {
 	let mut string = String::new();
 
+	let mut next_character_is_special = false;
+
 	for char in iter {
-		if char == '"' {
-			return Token::new(TokenType::String(string));
-		} else {
+		if next_character_is_special {
 			string.push(char);
+			next_character_is_special = false
+		} else {
+			if char == '"' {
+				return Token::new(TokenType::String(string));
+			}
+			if char == '\\' {
+				next_character_is_special = true;
+			} else {
+				string.push(char);
+			}
 		}
 	}
 
@@ -646,7 +656,7 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 		}
 		TreeNodeType::String(string) => {
 			js.push('"');
-			js.push_str(string.as_str());
+			js.push_str(&string.replace("\\", "\\\\").replace("\"", "\\\""));
 			js.push('"');
 		}
 		TreeNodeType::BinaryOperation(expr1, operator, expr2) => {
