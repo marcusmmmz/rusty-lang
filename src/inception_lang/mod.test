@@ -68,24 +68,24 @@ fn tokenize_string(i, chars) {
 
 	while i < chars.length {
 		let char = chars.at(i)
+		let handled = false
 
 		if next_character_is_special {
 			i = i + 1
 			string = string + char
 			next_character_is_special = false
+			handled = true
 		}
-		if not(next_character_is_special) {
+		if and(not(next_character_is_special), not(handled)) {
 			if char == "\"" {
-				i = i + 1
 				return [i, [TOKEN_STRING, string]]
 			}
 			if not(char == "\"") {
+				i = i + 1
 				if char == "\\" {
-					i = i + 1
 					next_character_is_special = true
 				}
 				if not(char == "\\") {
-					i = i + 1
 					string = string + char
 				}
 			}
@@ -101,11 +101,11 @@ fn tokenize_identifier(i, chars) {
 	while i < chars.length {
 		let char = chars.at(i)
 
-		if or(is_char(char), char == "_") {
+		if or(or(is_char(char), char == "_"), is_digit(char)) {
 			identifier = identifier + char
 			i = i + 1
 		} 
-		if not(is_char(char)) {
+		if not(or(or(is_char(char), char == "_"), is_digit(char))) {
 			i = i - 1
 			return [i, [TOKEN_IDENTIFIER, identifier]]
 		}
@@ -705,6 +705,10 @@ fn ast_to_js(node) {
 		let operator = ret.at(1)
 		let right = ret.at(2)
 
+		if operator == "==" {
+			operator = "==="
+		}
+
 		return ast_to_js(left) + " " + operator + " " + ast_to_js(right)
 	}
 	if get_node_type(node) == NODE_NUMBER {
@@ -713,10 +717,12 @@ fn ast_to_js(node) {
 		return number
 	}
 	if get_node_type(node) == NODE_IDENTIFIER {
-		return get_node_value(node)
+		let value = get_node_value(node)
+
+		return value
 	}
 	if get_node_type(node) == NODE_STRING {
-		return get_node_value(node).replace("\\", "\\\\").replace("\"", "\\\"")
+		return "`" + get_node_value(node).replaceAll("\\", "\\\\").replaceAll("`", "\\`") + "`"
 	}
 	if get_node_type(node) == NODE_LET_STATEMENT {
 		let value = get_node_value(node)
@@ -748,6 +754,10 @@ fn ast_to_js(node) {
 		let value = get_node_value(node)
 
 		let identifier = value.at(0)
+
+		if identifier == "print" {
+			identifier = "console.log"
+		}
 
 		let args = value.at(1)
 
@@ -836,7 +846,8 @@ fn ast_to_js(node) {
 	}
 	if get_node_type(node) == NODE_BRACKETS {
 		let children = get_node_value(node)
-		let output = "{"
+		let output = "{\
+"
 
 		let i = 0
 		while i < children.length {
@@ -845,13 +856,15 @@ fn ast_to_js(node) {
 			output = output + ast_to_js(child)
 
 			if not(i == children.length - 1) {
-				output = output + ";"
+				output = output + ";\
+"
 			}
 
 			i = i + 1
 		}
 
-		return output + "}"
+		return output + "\
+}"
 	}
 }
 
@@ -867,7 +880,3 @@ fn code_string_to_js(text) {
 
 	return output
 }
-
-print(
-	code_string_to_js("fn b() { if a { while true { let a = [1, 2] a.push(1 + 2) } } }")
-)

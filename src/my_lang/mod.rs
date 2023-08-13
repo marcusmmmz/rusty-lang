@@ -621,7 +621,7 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 				.iter()
 				.map(|arg| ast_to_js(arg))
 				.collect::<Vec<_>>()
-				.join(",");
+				.join(", ");
 
 			js.push_str(args_str.as_str());
 
@@ -655,9 +655,9 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 			});
 		}
 		TreeNodeType::String(string) => {
-			js.push('"');
-			js.push_str(&string.replace("\\", "\\\\").replace("\"", "\\\""));
-			js.push('"');
+			js.push('`');
+			js.push_str(&string.replace("\\", "\\\\").replace("`", "\\`"));
+			js.push('`');
 		}
 		TreeNodeType::BinaryOperation(expr1, operator, expr2) => {
 			let operator_str = match operator {
