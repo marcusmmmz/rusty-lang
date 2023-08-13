@@ -178,7 +178,7 @@ enum TreeNodeType {
 	ArrayCreation(Vec<TreeNode>),
 	BinaryOperation(Box<TreeNode>, BinaryOperatorType, Box<TreeNode>),
 	LetStatement(String, Box<TreeNode>),
-	IfStatement(Box<TreeNode>, Box<TreeNode>),
+	IfStatement(Box<TreeNode>, Box<TreeNode>, Option<Box<TreeNode>>),
 	WhileStatement(Box<TreeNode>, Box<TreeNode>),
 	FunctionCall(Box<TreeNode>, Vec<TreeNode>),
 	FunctionDeclaration(String, Vec<TreeNode>, Box<TreeNode>),
@@ -399,13 +399,39 @@ fn parse_let_statement<'a>(
 fn parse_if_statement<'a>(
 	mut iter: &mut Peekable<Iter<'a, Token>>,
 ) -> TreeNode {
-	let conditional = parse_expression(&mut iter);
-	let brackets = parse_brackets(&mut iter);
+	let conditional = Box::new(parse_expression(&mut iter));
+	let brackets = Box::new(parse_brackets(&mut iter));
 
-	return TreeNode::new(TreeNodeType::IfStatement(
-		Box::new(conditional),
-		Box::new(brackets),
-	));
+	match &iter.peek().unwrap().token_type {
+		TokenType::Identifier(identifier) if identifier == "else" => {
+			iter.next();
+
+			match &iter.peek().unwrap().token_type {
+				TokenType::Identifier(identifier) if identifier == "if" => {
+					iter.next();
+					return TreeNode::new(TreeNodeType::IfStatement(
+						conditional,
+						brackets,
+						Some(Box::new(parse_if_statement(iter))),
+					));
+				}
+				_ => {
+					return TreeNode::new(TreeNodeType::IfStatement(
+						conditional,
+						brackets,
+						Some(Box::new(parse_brackets(iter))),
+					));
+				}
+			}
+		}
+		_ => {
+			return TreeNode::new(TreeNodeType::IfStatement(
+				conditional,
+				brackets,
+				None,
+			))
+		}
+	}
 }
 
 fn parse_while_statement<'a>(
@@ -629,11 +655,20 @@ fn ast_to_js(tree_node: &TreeNode) -> String {
 
 			js.push_str(&ast_to_js(code));
 		}
-		TreeNodeType::IfStatement(condition, brackets) => {
+		TreeNodeType::IfStatement(condition, brackets, else_cond) => {
 			js.push_str("if (");
 			js.push_str(&ast_to_js(&condition));
 			js.push_str(") ");
+
 			js.push_str(&ast_to_js(&brackets));
+
+			match else_cond {
+				Some(else_cond) => {
+					js.push_str(" else ");
+					js.push_str(&ast_to_js(else_cond));
+				}
+				None => {}
+			}
 		}
 		TreeNodeType::WhileStatement(condition, brackets) => {
 			js.push_str("while (");

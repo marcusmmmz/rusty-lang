@@ -50,7 +50,24 @@ fn compile_using_inception_compiler(compiler_code_in_js: &str) -> String {
 }
 
 #[test]
-fn compile_recursively() {
+fn compile_with_rust() {
+	let compiler_code = &compile_using_rust_compiler();
+
+	fs::write("./src/inception_lang/first.js", &compiler_code).unwrap();
+}
+
+#[test]
+fn compile_with_itself() {
+	let first_compiler = compile_using_rust_compiler();
+	fs::write("./src/inception_lang/first.js", &first_compiler).unwrap();
+
+	let final_compiler = compile_using_inception_compiler(&first_compiler);
+
+	fs::write("./src/inception_lang/final.js", &final_compiler).unwrap();
+}
+
+#[test]
+fn compile_with_itself_multiple_times() {
 	let first_compiler = compile_using_rust_compiler();
 	fs::write("./src/inception_lang/first.js", &first_compiler).unwrap();
 

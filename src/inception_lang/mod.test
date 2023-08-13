@@ -68,26 +68,19 @@ fn tokenize_string(i, chars) {
 
 	while i < chars.length {
 		let char = chars.at(i)
-		let handled = false
 
 		if next_character_is_special {
 			i = i + 1
 			string = string + char
 			next_character_is_special = false
-			handled = true
-		}
-		if and(not(next_character_is_special), not(handled)) {
-			if char == "\"" {
-				return [i, [TOKEN_STRING, string]]
-			}
-			if not(char == "\"") {
-				i = i + 1
-				if char == "\\" {
-					next_character_is_special = true
-				}
-				if not(char == "\\") {
-					string = string + char
-				}
+		} else if char == "\"" {
+			return [i, [TOKEN_STRING, string]]
+		} else {
+			i = i + 1
+			if char == "\\" {
+				next_character_is_special = true
+			} else {
+				string = string + char
 			}
 		}
 	}
@@ -104,8 +97,7 @@ fn tokenize_identifier(i, chars) {
 		if or(or(is_char(char), char == "_"), is_digit(char)) {
 			identifier = identifier + char
 			i = i + 1
-		} 
-		if not(or(or(is_char(char), char == "_"), is_digit(char))) {
+		} else {
 			i = i - 1
 			return [i, [TOKEN_IDENTIFIER, identifier]]
 		}
@@ -123,8 +115,7 @@ fn tokenize_number(i, chars) {
 		if is_digit(char) {
 			number = number + char
 			i = i + 1
-		} 
-		if not(is_digit(char)) {
+		} else {
 			i = i - 1
 			return [i, [TOKEN_NUMBER, number]]
 		}
@@ -142,8 +133,7 @@ fn tokenize_operator(i, chars) {
 		if is_operator(char) {
 			operator = operator + char
 			i = i + 1
-		} 
-		if not(is_operator(char)) {
+		} else {
 			i = i - 1
 			return [i, [TOKEN_OPERATOR, operator]]
 		}
@@ -167,49 +157,27 @@ fn tokenize(text) {
 		if char.charCodeAt(0) == 34 {
 			i = i + 1
 			tokenize_and_skip(tokenize_string)
-		}
-
-		if is_digit(char) {
+		} else if is_digit(char) {
 			tokenize_and_skip(tokenize_number)
-		}
-
-		if is_char(char) {
+		} else if is_char(char) {
 			tokenize_and_skip(tokenize_identifier)
-		}
-
-		if is_operator(char) {
+		} else if is_operator(char) {
 			tokenize_and_skip(tokenize_operator)
-		}
-
-		if char == "{" {
+		} else if char == "{" {
 			tokens.push([TOKEN_OPEN_BRACKET, []])
-		}
-
-		if char == "}" {
+		} else if char == "}" {
 			tokens.push([TOKEN_CLOSED_BRACKET, []])
-		}
-
-		if char == "[" {
+		} else if char == "[" {
 			tokens.push([TOKEN_OPEN_SQUARE_BRACKET, []])
-		}
-
-		if char == "]" {
+		} else if char == "]" {
 			tokens.push([TOKEN_CLOSED_SQUARE_BRACKET, []])
-		}
-
-		if char == "(" {
+		} else if char == "(" {
 			tokens.push([TOKEN_OPEN_PAREN, []])
-		}
-
-		if char == ")" {
+		} else if char == ")" {
 			tokens.push([TOKEN_CLOSED_PAREN, []])
-		}
-
-		if char == "." {
+		} else if char == "." {
 			tokens.push([TOKEN_DOT, []])
-		}
-
-		if char == "," {
+		} else if char == "," {
 			tokens.push([TOKEN_COMMA, []])
 		}
 
@@ -276,14 +244,10 @@ fn parse_parenthesis(i, tokens) {
 		if get_token_type(token) == TOKEN_CLOSED_PAREN {
 			i = i + 1
 			return [i, children]
-		}
-
-		if not(get_token_type(token) == TOKEN_CLOSED_PAREN) {
+		} else {
 			if get_token_type(token) == TOKEN_COMMA {
 				i = i + 1
-			}
-
-			if not(get_token_type(token) == TOKEN_COMMA) {
+			} else {
 				let ret = parse_expression(i, tokens)
 				i = ret.at(0)
 				expression = ret.at(1)
@@ -324,12 +288,9 @@ fn parse_member(object, i, tokens) {
 
 		vec.push(expr_unit)
 
-		let condition = get_node_type(tokens.at(i)) == TOKEN_DOT
-
-		if condition {
+		if get_node_type(tokens.at(i)) == TOKEN_DOT {
 			i = i + 1
-		}
-		if not(condition) {
+		} else {
 			return [i, [NODE_MEMBER, vec]]
 		}
 	}
@@ -338,15 +299,13 @@ fn parse_member(object, i, tokens) {
 fn try_parse_expression_unit_different_idk(i, tokens) {
 	let token = tokens.at(i)
 
-	if get_token_type(token) == TOKEN_NUMBER {
+	let token_type = get_token_type(token)
+
+	if token_type == TOKEN_NUMBER {
 		return [i + 1, [NODE_NUMBER, get_token_value(token)]]
-	}
-
-	if get_token_type(token) == TOKEN_STRING {
+	} else if token_type == TOKEN_STRING {
 		return [i + 1, [NODE_STRING, get_token_value(token)]]
-	}
-
-	if get_token_type(token) == TOKEN_IDENTIFIER {
+	} else if token_type == TOKEN_IDENTIFIER {
 		let identifier = get_token_value(token)
 
 		i = i + 1
@@ -360,9 +319,7 @@ fn try_parse_expression_unit_different_idk(i, tokens) {
 		}
 
 		return [i, [NODE_IDENTIFIER, identifier]]
-	}
-
-	if get_token_type(token) == TOKEN_OPEN_SQUARE_BRACKET {
+	} else if token_type == TOKEN_OPEN_SQUARE_BRACKET {
 		i = i + 1
 
 		let ret = parse_square_brackets(i, tokens)
@@ -419,9 +376,9 @@ fn parse_known_size_expression(nodes) {
 		return nodes.at(0)
 	}
 
-	let lowest_precedence = 9999;
-	let lowest_precedence_index = 0;
-	let lowest_precedence_operation = " ";
+	let lowest_precedence = 9999
+	let lowest_precedence_index = 0
+	let lowest_precedence_operation = " "
 
 	let i = 0
 	while i < nodes.length {
@@ -430,11 +387,11 @@ fn parse_known_size_expression(nodes) {
 		if get_node_type(node) == NODE_OPERATION {
 			let operation = get_node_value(node).at(1)
 
-			let op_precedence = get_operator_precedence(operation);
+			let op_precedence = get_operator_precedence(operation)
 
 			if op_precedence < lowest_precedence {
-				lowest_precedence = op_precedence;
-				lowest_precedence_index = i;
+				lowest_precedence = op_precedence
+				lowest_precedence_index = i
 				lowest_precedence_operation = operation
 			}
 		}
@@ -472,10 +429,10 @@ fn parse_expression(i, tokens) {
 				
 				last_token_was_expr = false
 				i = i + 1
-			} if not(get_token_type(token) == TOKEN_OPERATOR) {
+			} else {
 				return [i, parse_known_size_expression(nodes)]
 			}
-		} if not(last_token_was_expr) {
+		} else {
 			let ret = try_parse_expression_unit(i, tokens)
 
 			if not(ret) {
@@ -503,18 +460,16 @@ fn parse_let_statement(i, tokens) {
 			}
 			i = i + 1
 
-			let ret = parse_expression(i, tokens);
+			let ret = parse_expression(i, tokens)
 			i = ret.at(0)
 
 			let expression = ret.at(1)
 
 			return [i, [NODE_LET_STATEMENT, [identifier, expression]]]
-		}
-		if not(get_node_type(tokens.at(i)) == TOKEN_OPERATOR) {
+		} else {
 			print("PANIC")
 		}
-	}
-	if not(get_node_type(tokens.at(i)) == TOKEN_IDENTIFIER) {
+	} else {
 		print("PANIC")
 	}
 }
@@ -527,6 +482,36 @@ fn parse_if_statement(i, tokens) {
 	let ret_2 = parse_brackets(i, tokens)
 	i = ret_2.at(0)
 	let brackets = ret_2.at(1)
+
+	if get_token_type(tokens.at(i)) == TOKEN_IDENTIFIER {
+		if get_token_value(tokens.at(i)) == "else" {
+			i = i + 1
+
+			if get_token_type(tokens.at(i)) == TOKEN_IDENTIFIER {
+				if get_token_value(tokens.at(i)) == "if" {
+					i = i + 1
+
+					let ret = parse_if_statement(i, tokens)
+					i = ret.at(0)
+					value = ret.at(1)
+
+					return [i, [NODE_IF_STATEMENT, [conditional, brackets, value]]]
+				} else {
+					let ret = parse_brackets(i, tokens)
+					i = ret.at(0)
+					value = ret.at(1)
+
+					return [i, [NODE_IF_STATEMENT, [conditional, brackets, value]]]
+				}
+			} else {
+				let ret = parse_brackets(i, tokens)
+				i = ret.at(0)
+				value = ret.at(1)
+
+				return [i, [NODE_IF_STATEMENT, [conditional, brackets, value]]]
+			}
+		}
+	}
 
 	return [i, [NODE_IF_STATEMENT, [conditional, brackets]]]
 }
@@ -571,13 +556,9 @@ fn parse_square_brackets(i, tokens) {
 			return [i, [NODE_ARRAY_CREATION, nodes]]
 		}
 
-		let is_comma = get_token_type(tokens.at(i)) == TOKEN_COMMA
-
-		if is_comma {
+		if get_token_type(tokens.at(i)) == TOKEN_COMMA {
 			i = i + 1
-		}
-
-		if not(is_comma) {
+		} else {
 			i = i + 1
 			print("PANIC")
 		}
@@ -624,51 +605,28 @@ fn parse_brackets(i, tokens) {
 		let token_type = get_token_type(token)
 		let token_value = get_token_value(token)
 
-		let handled = false
-
 		if token_type == TOKEN_IDENTIFIER {
-			let handled_identifier = false
-
 			if token_value == "let" {
 				i = i + 1
 				parse_and_skip(parse_let_statement)
-				handled_identifier = true
-			}
-			if token_value == "if" {
+			} else if token_value == "if" {
 				i = i + 1
 				parse_and_skip(parse_if_statement)
-				handled_identifier = true
-			}
-			if token_value == "while" {
+			} else if token_value == "while" {
 				i = i + 1
 				parse_and_skip(parse_while_statement)
-				handled_identifier = true
-			}
-			if token_value == "return" {
+			} else if token_value == "return" {
 				i = i + 1
 				parse_and_skip(parse_return_statement)
-				handled_identifier = true
-			}
-			if token_value == "fn" {
+			} else if token_value == "fn" {
 				i = i + 1
 				parse_and_skip(parse_function_declaration)
-				handled_identifier = true
-			}
-
-			if not(handled_identifier) {
+			} else {
 				parse_and_skip(parse_expression)
 			}
-
-			handled = true
-		}
-
-		if or(token_type == TOKEN_STRING, token_type == TOKEN_NUMBER) {
+		} else if or(token_type == TOKEN_STRING, token_type == TOKEN_NUMBER) {
 			parse_and_skip(parse_expression)
-
-			handled = true
-		}
-
-		if not(handled) {
+		} else {
 			i = i + 1
 			let token = tokens.at(i)
 
@@ -710,47 +668,51 @@ fn ast_to_js(node) {
 		}
 
 		return ast_to_js(left) + " " + operator + " " + ast_to_js(right)
-	}
-	if get_node_type(node) == NODE_NUMBER {
+	} else if get_node_type(node) == NODE_NUMBER {
 		let number = get_node_value(node)
 
 		return number
-	}
-	if get_node_type(node) == NODE_IDENTIFIER {
+	} else if get_node_type(node) == NODE_IDENTIFIER {
 		let value = get_node_value(node)
 
 		return value
-	}
-	if get_node_type(node) == NODE_STRING {
+	} else if get_node_type(node) == NODE_STRING {
 		return "`" + get_node_value(node).replaceAll("\\", "\\\\").replaceAll("`", "\\`") + "`"
-	}
-	if get_node_type(node) == NODE_LET_STATEMENT {
+	} else if get_node_type(node) == NODE_LET_STATEMENT {
 		let value = get_node_value(node)
 		let identifier = get_node_value(value.at(0))
 		let expression = ast_to_js( value.at(1) )
 
 		return "let " + identifier + " = " + expression
-	}
-	if get_node_type(node) == NODE_IF_STATEMENT {
+	} else if get_node_type(node) == NODE_IF_STATEMENT {
 		let value = get_node_value(node)
 		let conditional = ast_to_js( value.at(0) )
 		let brackets = ast_to_js( value.at(1) )
 
-		return "if (" + conditional + ") " + brackets
-	}
-	if get_node_type(node) == NODE_WHILE_STATEMENT {
+		let output = "if ("
+		output = output + conditional
+		output = output + ") "
+		output = output + brackets
+
+		let else_cond = value.at(2)
+
+		if else_cond {
+			output = output + " else "
+			output = output + ast_to_js(else_cond)
+		}
+
+		return output
+	} else if get_node_type(node) == NODE_WHILE_STATEMENT {
 		let value = get_node_value(node)
 		let conditional = ast_to_js( value.at(0) )
 		let brackets = ast_to_js( value.at(1) )
 
 		return "while (" + conditional + ") " + brackets
-	}
-	if get_node_type(node) == NODE_RETURN_STATEMENT {
+	} else if get_node_type(node) == NODE_RETURN_STATEMENT {
 		let expression = ast_to_js( get_node_value(node) )
 
 		return "return " + expression
-	}
-	if get_node_type(node) == NODE_FUNCTION_CALL {
+	} else if get_node_type(node) == NODE_FUNCTION_CALL {
 		let value = get_node_value(node)
 
 		let identifier = value.at(0)
@@ -777,8 +739,7 @@ fn ast_to_js(node) {
 		}
 
 		return identifier + "(" + args_str + ")"
-	}
-	if get_node_type(node) == NODE_FUNCTION_DECLARATION {
+	} else if get_node_type(node) == NODE_FUNCTION_DECLARATION {
 		let value = get_node_value(node)
 
 		let func_name = value.at(0)
@@ -803,8 +764,7 @@ fn ast_to_js(node) {
 		let brackets = ast_to_js( value.at(2) )
 
 		return "function " + func_name + "(" + args_str + ") " + brackets
-	}
-	if get_node_type(node) == NODE_ARRAY_CREATION {
+	} else if get_node_type(node) == NODE_ARRAY_CREATION {
 		let args = get_node_value(node)
 
 		let args_str = ""
@@ -823,8 +783,7 @@ fn ast_to_js(node) {
 		}
 
 		return "[" + args_str + "]"
-	}
-	if get_node_type(node) == NODE_MEMBER {
+	} else if get_node_type(node) == NODE_MEMBER {
 		let members = get_node_value(node)
 
 		let members_str = ""
@@ -843,8 +802,7 @@ fn ast_to_js(node) {
 		}
 
 		return members_str
-	}
-	if get_node_type(node) == NODE_BRACKETS {
+	} else if get_node_type(node) == NODE_BRACKETS {
 		let children = get_node_value(node)
 		let output = "{\
 "
